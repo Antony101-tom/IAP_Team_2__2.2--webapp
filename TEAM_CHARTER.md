@@ -6,7 +6,7 @@ Jade Josephine - Integration/QA lead
 Angelo Morara - API lead
 Anthony Njenga - Docs/DevOps lead
 
-# Medittrac Summary
+# Meditrac Summary
 
 Meditrac helps patients find medication at nearby pharmacies and lets pharmacies manage what they have in stock.
 ●	Patients can search for a medication, see which registered pharmacies carry it, and view them on a map sorted by distance
@@ -47,7 +47,7 @@ Meditrac helps patients find medication at nearby pharmacies and lets pharmacies
 7.	Save pharmacy location
 
 
-Ring position - Team 2
-Downstream partner - Team 3
-Upstream partner - Team 1
+# Ring position - Team 2
+# Downstream partner - Team 3
+# Upstream partner - Team 1
 
