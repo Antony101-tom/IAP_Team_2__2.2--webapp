@@ -1,6 +1,6 @@
 # Contributors
 
-Anthony
-Jade
-Angelo 
-Leroy
+1.Anthony
+2.Jade
+3.Angelo 
+4.Leroy
