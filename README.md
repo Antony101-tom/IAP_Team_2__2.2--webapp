@@ -13,7 +13,7 @@ This is the React + Vite version of the app, built with `react-router-dom` for r
 Clone the repo, then install and run:
 
 ```bash
-git clone https://github.com/Antony101-tom/MEDITRAC-website-project.git
+git clone https://github.com/Antony101-tom/IAP_Team_2_2.2--webapp.git
 cd meditrac-react
 npm install
 npm run dev
