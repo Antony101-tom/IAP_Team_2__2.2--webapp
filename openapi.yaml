@@ -1,1 +1,420 @@
+openapi: 3.0.0
+info:
+  title: MediTrac API
+  version: 1.0.0
+  description: >
+    API for MediTrac — connects patients with real-time pharmacy medication
+    stock, pricing, and location data.
+
+paths:
+
+  /pharmacies:
+    post:
+      summary: Create a new pharmacy record with its name, medications, stock, and prices.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - medications
+              properties:
+                name:
+                  type: string
+                  example: "Halisi Pharmaceuticals"
+                location:
+                  type: object
+                  properties:
+                    latitude:
+                      type: number
+                      format: double
+                      example: -1.2921
+                    longitude:
+                      type: number
+                      format: double
+                      example: 36.8219
+                medications:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - stock
+                      - price
+                    properties:
+                      name:
+                        type: string
+                        example: "Paracetamol 500mg"
+                      category:
+                        type: string
+                        example: "Analgesic"
+                      stock:
+                        type: integer
+                        example: 120
+                      price:
+                        type: number
+                        format: float
+                        example: 50.00
+            
+      responses:
+        '201':
+          description: Pharmacy created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - name
+                  - medications
+                  - createdAt
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+                  name:
+                    type: string
+                    example: "Halisi Pharmaceuticals"
+                  location:
+                    type: object
+                    properties:
+                      latitude:
+                        type: number
+                        example: -1.2921
+                      longitude:
+                        type: number
+                        example: 36.8219
+                  medications:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          example: "d4e5f6a7-1111-2222-3333-444455556666"
+                        name:
+                          type: string
+                          example: "Paracetamol 500mg"
+                        category:
+                          type: string
+                          example: "Analgesic"
+                        stock:
+                          type: integer
+                          example: 120
+                        price:
+                          type: number
+                          example: 50.00
+                  createdAt:
+                    type: string
+                    format: date-time
+                    example: "2026-09-07T09:15:00Z"
+             
+
+    get:
+      summary: Return pharmacy records, optionally trimmed to specific fields, for catalog display.
+      parameters:
+        - name: fields
+          in: query
+          required: false
+          description: >
+            Comma-separated list of fields to include in the response, to avoid
+            over-fetching when populating the full catalog in one request
+            (e.g. `stock,name,location`).
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [stock, name, location, medications, price]
+          style: form
+          explode: false
+          example: ["stock", "name", "location"]
+      responses:
+        '200':
+          description: A list of pharmacy records, trimmed to the requested fields.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - id
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                      example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+                    name:
+                      type: string
+                      example: "Halisi Pharmaceuticals"
+                    location:
+                      type: object
+                      properties:
+                        latitude:
+                          type: number
+                          example: -1.2921
+                        longitude:
+                          type: number
+                          example: 36.8219
+                    stock:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          medicationName:
+                            type: string
+                            example: "Paracetamol 500mg"
+                          quantity:
+                            type: integer
+                            example: 120
+            
+
+  /pharmacies/{id}:
+    put:
+      summary: Replace an existing pharmacy's name, medications, stock, and prices.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier of the pharmacy to update.
+          schema:
+            type: string
+            format: uuid
+          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - medications
+              properties:
+                name:
+                  type: string
+                  example: "Halisi Pharmaceuticals - Kilimani Branch"
+                location:
+                  type: object
+                  properties:
+                    latitude:
+                      type: number
+                      example: -1.2921
+                    longitude:
+                      type: number
+                      example: 36.8219
+                medications:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - stock
+                      - price
+                    properties:
+                      name:
+                        type: string
+                        example: "Paracetamol 500mg"
+                      category:
+                        type: string
+                        example: "Analgesic"
+                      stock:
+                        type: integer
+                        example: 100
+                      price:
+                        type: number
+                        example: 55.00
+            
+      responses:
+        '200':
+          description: Pharmacy updated successfully; the full updated record is returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - name
+                  - medications
+                  - updatedAt
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+                  name:
+                    type: string
+                    example: "Halisi Pharmaceuticals - Kilimani Branch"
+                  location:
+                    type: object
+                    properties:
+                      latitude:
+                        type: number
+                        example: -1.2921
+                      longitude:
+                        type: number
+                        example: 36.8219
+                  medications:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          example: "d4e5f6a7-1111-2222-3333-444455556666"
+                        name:
+                          type: string
+                          example: "Paracetamol 500mg"
+                        category:
+                          type: string
+                          example: "Analgesic"
+                        stock:
+                          type: integer
+                          example: 100
+                        price:
+                          type: number
+                          example: 55.00
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    example: "2026-09-07T10:02:00Z"
+              
+
+  /pharmacies/{id}/stock:
+    patch:
+      summary: Update stock counts for a pharmacy's medications without touching any other fields.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier of the pharmacy whose stock is being updated.
+          schema:
+            type: string
+            format: uuid
+          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - medications
+              properties:
+                medications:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - medicationId
+                      - stock
+                    properties:
+                      medicationId:
+                        type: string
+                        format: uuid
+                        example: "d4e5f6a7-1111-2222-3333-444455556666"
+                      stock:
+                        type: integer
+                        example: 85
+           
+      responses:
+        '200':
+          description: Stock updated successfully; the updated medication stock levels are returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - medications
+                  - updatedAt
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+                  medications:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        medicationId:
+                          type: string
+                          format: uuid
+                          example: "d4e5f6a7-1111-2222-3333-444455556666"
+                        name:
+                          type: string
+                          example: "Paracetamol 500mg"
+                        stock:
+                          type: integer
+                          example: 85
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    example: "2026-09-07T10:15:30Z"
+              
+
+  /pharmacies/{id}/location:
+    get:
+      summary: Return a single pharmacy's location details for map and directions display.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier of the pharmacy whose location is being requested.
+          schema:
+            type: string
+            format: uuid
+          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+      responses:
+        '200':
+          description: The pharmacy's location details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - name
+                  - latitude
+                  - longitude
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+                  name:
+                    type: string
+                    example: "Halisi Pharmaceuticals"
+                  latitude:
+                    type: number
+                    format: double
+                    example: -1.2921
+                  longitude:
+                    type: number
+                    format: double
+                    example: 36.8219
+                  address:
+                    type: string
+                    example: "Kilimani Road, Nairobi"
+              
+        '404':
+          description: No pharmacy exists with the given id, or it has no location on file.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    example: "Pharmacy not found or location not set."
+              example:
+                error: "Pharmacy not found or location not set."
 
