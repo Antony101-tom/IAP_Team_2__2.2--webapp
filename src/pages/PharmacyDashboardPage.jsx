@@ -12,9 +12,6 @@ export default function PharmacyDashboardPage() {
   useEffect(() => { document.title = 'Pharmacy Control Center - Meditrac'; }, []);
   const session = getSession();
 
-  // Prefers ?name=/?branch= (fresh login/signup redirect), then falls back
-  // to the saved session. No fake fallback name/branch — if neither is
-  // available this is an unauthenticated visit.
   const pharmacyName = searchParams.get('name') || (session && session.type === 'pharmacy' ? session.name : null) || 'Partner Pharmacy';
   const defaultBranch = searchParams.get('branch') || '';
 
@@ -22,8 +19,6 @@ export default function PharmacyDashboardPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState('');
 
-  // Pharmacies no longer pin their location during registration — they do
-  // it here instead, once, right after signing up (or any time later).
   const account = useMemo(
     () => (session && session.type === 'pharmacy' ? findAccount(loadAccounts(), 'pharmacy', session.email) : null),
     [session, refreshTick]
@@ -31,12 +26,6 @@ export default function PharmacyDashboardPage() {
   const hasPin = !!(account && account.latitude != null && account.longitude != null);
   const [draftPin, setDraftPin] = useState(null);
 
-  // Stable identity — passing a fresh inline function on every render would
-  // make PharmacyLocationPicker's effect see a new `onChange` and tear the
-  // map down/rebuild it after every single click (setDraftPin triggers a
-  // re-render → new inline fn → effect cleanup mid-click → Leaflet's drag
-  // state gets confused and the cursor sticks in "grab" instead of dropping
-  // the pin). setDraftPin itself is stable, so this callback is too.
   const handlePinChange = useCallback((lat, lng) => setDraftPin({ lat, lng }), []);
 
   function savePin() {
@@ -47,15 +36,31 @@ export default function PharmacyDashboardPage() {
     showToast('Pharmacy location saved — patients can now see how far they are from you.');
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshTick is a deliberate cache-buster, not a real dependency
-  const allMeds = useMemo(() => loadAllMedications(), [refreshTick]);
-  const meds = useMemo(() => allMeds.filter((m) => m.pharmacy === pharmacyName), [allMeds, pharmacyName]);
+  // Real medication data now comes from Supabase, filtered by this pharmacy's name.
+  const [meds, setMeds] = useState([]);
+  const [medsLoading, setMedsLoading] = useState(true);
+
+  useEffect(() => {
+    setMedsLoading(true);
+    fetch(`http://localhost:5000/api/medications/by-pharmacy?name=${encodeURIComponent(pharmacyName)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setMeds(Array.isArray(data) ? data : []);
+        setMedsLoading(false);
+      })
+      .catch((err) => {
+        console.error(err);
+        setMeds([]);
+        setMedsLoading(false);
+      });
+  }, [pharmacyName, refreshTick]);
 
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 2500);
   }
 
+  // NOTE: Add/Update still write to localStorage for now — not yet wired to Supabase.
   function handleSave(newMedFields) {
     const newMed = { id: 'm' + Date.now(), pharmacy: pharmacyName, ...newMedFields };
     const all = loadAllMedications();
@@ -139,7 +144,13 @@ export default function PharmacyDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {meds.length === 0 ? (
+                  {medsLoading ? (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', padding: '36px 20px', color: '#a0aec0' }}>
+                        Loading medications...
+                      </td>
+                    </tr>
+                  ) : meds.length === 0 ? (
                     <tr>
                       <td colSpan="5" style={{ textAlign: 'center', padding: '36px 20px', color: '#a0aec0' }}>
                         No medications added yet. Click "+ Add New Medication" above to get started.
