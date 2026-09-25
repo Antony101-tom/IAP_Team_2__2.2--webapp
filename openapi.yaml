@@ -6,415 +6,280 @@ info:
     API for MediTrac — connects patients with real-time pharmacy medication
     stock, pricing, and location data.
 
+servers:
+  - url: http://localhost:5000/api
+    description: Local development server
+
 paths:
 
-  /pharmacies:
-    post:
-      summary: Create a new pharmacy record with its name, medications, stock, and prices.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - name
-                - medications
-              properties:
-                name:
-                  type: string
-                  example: "Halisi Pharmaceuticals"
-                location:
-                  type: object
-                  properties:
-                    latitude:
-                      type: number
-                      format: double
-                      example: -1.2921
-                    longitude:
-                      type: number
-                      format: double
-                      example: 36.8219
-                medications:
-                  type: array
-                  items:
-                    type: object
-                    required:
-                      - name
-                      - stock
-                      - price
-                    properties:
-                      name:
-                        type: string
-                        example: "Paracetamol 500mg"
-                      category:
-                        type: string
-                        example: "Analgesic"
-                      stock:
-                        type: integer
-                        example: 120
-                      price:
-                        type: number
-                        format: float
-                        example: 50.00
-            
-      responses:
-        '201':
-          description: Pharmacy created successfully.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - id
-                  - name
-                  - medications
-                  - createdAt
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
-                  name:
-                    type: string
-                    example: "Halisi Pharmaceuticals"
-                  location:
-                    type: object
-                    properties:
-                      latitude:
-                        type: number
-                        example: -1.2921
-                      longitude:
-                        type: number
-                        example: 36.8219
-                  medications:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                          example: "d4e5f6a7-1111-2222-3333-444455556666"
-                        name:
-                          type: string
-                          example: "Paracetamol 500mg"
-                        category:
-                          type: string
-                          example: "Analgesic"
-                        stock:
-                          type: integer
-                          example: 120
-                        price:
-                          type: number
-                          example: 50.00
-                  createdAt:
-                    type: string
-                    format: date-time
-                    example: "2026-09-07T09:15:00Z"
-             
-
+  /medications:
     get:
-      summary: Return pharmacy records, optionally trimmed to specific fields, for catalog display.
-      parameters:
-        - name: fields
-          in: query
-          required: false
-          description: >
-            Comma-separated list of fields to include in the response, to avoid
-            over-fetching when populating the full catalog in one request
-            (e.g. `stock,name,location`).
-          schema:
-            type: array
-            items:
-              type: string
-              enum: [stock, name, location, medications, price]
-          style: form
-          explode: false
-          example: ["stock", "name", "location"]
+      summary: Return all medications across all pharmacies.
       responses:
         '200':
-          description: A list of pharmacy records, trimmed to the requested fields.
+          description: A list of medication records.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  type: object
-                  required:
-                    - id
-                  properties:
-                    id:
-                      type: string
-                      format: uuid
-                      example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
-                    name:
-                      type: string
-                      example: "Halisi Pharmaceuticals"
-                    location:
-                      type: object
-                      properties:
-                        latitude:
-                          type: number
-                          example: -1.2921
-                        longitude:
-                          type: number
-                          example: 36.8219
-                    stock:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          medicationName:
-                            type: string
-                            example: "Paracetamol 500mg"
-                          quantity:
-                            type: integer
-                            example: 120
-            
+                  $ref: '#/components/schemas/Medication'
 
-  /pharmacies/{id}:
-    put:
-      summary: Replace an existing pharmacy's name, medications, stock, and prices.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: The unique identifier of the pharmacy to update.
-          schema:
-            type: string
-            format: uuid
-          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+    post:
+      summary: Create a new medication record.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - name
-                - medications
-              properties:
-                name:
-                  type: string
-                  example: "Halisi Pharmaceuticals - Kilimani Branch"
-                location:
-                  type: object
-                  properties:
-                    latitude:
-                      type: number
-                      example: -1.2921
-                    longitude:
-                      type: number
-                      example: 36.8219
-                medications:
-                  type: array
-                  items:
-                    type: object
-                    required:
-                      - name
-                      - stock
-                      - price
-                    properties:
-                      name:
-                        type: string
-                        example: "Paracetamol 500mg"
-                      category:
-                        type: string
-                        example: "Analgesic"
-                      stock:
-                        type: integer
-                        example: 100
-                      price:
-                        type: number
-                        example: 55.00
-            
+              $ref: '#/components/schemas/MedicationInput'
       responses:
-        '200':
-          description: Pharmacy updated successfully; the full updated record is returned.
+        '201':
+          description: Medication created successfully.
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - name
-                  - medications
-                  - updatedAt
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
-                  name:
-                    type: string
-                    example: "Halisi Pharmaceuticals - Kilimani Branch"
-                  location:
-                    type: object
-                    properties:
-                      latitude:
-                        type: number
-                        example: -1.2921
-                      longitude:
-                        type: number
-                        example: 36.8219
-                  medications:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                          example: "d4e5f6a7-1111-2222-3333-444455556666"
-                        name:
-                          type: string
-                          example: "Paracetamol 500mg"
-                        category:
-                          type: string
-                          example: "Analgesic"
-                        stock:
-                          type: integer
-                          example: 100
-                        price:
-                          type: number
-                          example: 55.00
-                  updatedAt:
-                    type: string
-                    format: date-time
-                    example: "2026-09-07T10:02:00Z"
-              
-
-  /pharmacies/{id}/stock:
-    patch:
-      summary: Update stock counts for a pharmacy's medications without touching any other fields.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: The unique identifier of the pharmacy whose stock is being updated.
-          schema:
-            type: string
-            format: uuid
-          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - medications
-              properties:
-                medications:
-                  type: array
-                  items:
-                    type: object
-                    required:
-                      - medicationId
-                      - stock
-                    properties:
-                      medicationId:
-                        type: string
-                        format: uuid
-                        example: "d4e5f6a7-1111-2222-3333-444455556666"
-                      stock:
-                        type: integer
-                        example: 85
-           
-      responses:
-        '200':
-          description: Stock updated successfully; the updated medication stock levels are returned.
+                $ref: '#/components/schemas/Medication'
+        '400':
+          description: Validation failed — missing or wrong-type fields.
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - medications
-                  - updatedAt
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
-                  medications:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        medicationId:
-                          type: string
-                          format: uuid
-                          example: "d4e5f6a7-1111-2222-3333-444455556666"
-                        name:
-                          type: string
-                          example: "Paracetamol 500mg"
-                        stock:
-                          type: integer
-                          example: 85
-                  updatedAt:
-                    type: string
-                    format: date-time
-                    example: "2026-09-07T10:15:30Z"
-              
+                $ref: '#/components/schemas/ValidationError'
 
-  /pharmacies/{id}/location:
+  /medications/by-pharmacy:
     get:
-      summary: Return a single pharmacy's location details for map and directions display.
+      summary: Return medications belonging to a single pharmacy, by pharmacy name.
+      parameters:
+        - name: name
+          in: query
+          required: true
+          description: The pharmacy's name to filter medications by.
+          schema:
+            type: string
+          example: "Halisi Pharmaceuticals"
+      responses:
+        '200':
+          description: A list of medications for the given pharmacy.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Medication'
+        '400':
+          description: Missing required "name" query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No pharmacy exists with the given name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /medications/{id}:
+    put:
+      summary: Replace an existing medication's details.
       parameters:
         - name: id
           in: path
           required: true
-          description: The unique identifier of the pharmacy whose location is being requested.
+          description: The unique identifier of the medication to update.
           schema:
             type: string
             format: uuid
-          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+          example: "1797cd3d-cd55-41bc-b791-ffbf1c0187b8"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MedicationInput'
       responses:
         '200':
-          description: The pharmacy's location details.
+          description: Medication updated successfully; the full updated record is returned.
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - name
-                  - latitude
-                  - longitude
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                    example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
-                  name:
-                    type: string
-                    example: "Halisi Pharmaceuticals"
-                  latitude:
-                    type: number
-                    format: double
-                    example: -1.2921
-                  longitude:
-                    type: number
-                    format: double
-                    example: 36.8219
-                  address:
-                    type: string
-                    example: "Kilimani Road, Nairobi"
-              
+                $ref: '#/components/schemas/Medication'
+        '400':
+          description: Validation failed — missing or wrong-type fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
         '404':
-          description: No pharmacy exists with the given id, or it has no location on file.
+          description: No medication exists with the given id.
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - error
-                properties:
-                  error:
-                    type: string
-                    example: "Pharmacy not found or location not set."
-              example:
-                error: "Pharmacy not found or location not set."
+                $ref: '#/components/schemas/Error'
 
+    delete:
+      summary: Delete a medication record.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier of the medication to delete.
+          schema:
+            type: string
+            format: uuid
+          example: "d4e5f6a7-1111-2222-3333-444455556666"
+      responses:
+        '204':
+          description: Medication deleted successfully. No content returned.
+        '404':
+          description: No medication exists with the given id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /medications/{id}/stock:
+    patch:
+      summary: Update just the quantity (stock level) for one medication.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier of the medication whose stock is being updated.
+          schema:
+            type: string
+            format: uuid
+          example: "1797cd3d-cd55-41bc-b791-ffbf1c0187b8"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - quantity
+              properties:
+                quantity:
+                  type: integer
+                  example: 85
+      responses:
+        '200':
+          description: Stock updated successfully; the updated medication is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medication'
+        '400':
+          description: Missing or invalid quantity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No medication exists with the given id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Medication:
+      type: object
+      required:
+        - id
+        - name
+        - quantity
+        - price
+        - pharmacy_id
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "d4e5f6a7-1111-2222-3333-444455556666"
+        name:
+          type: string
+          example: "Paracetamol 500mg"
+        form:
+          type: string
+          example: "Tablet"
+        category:
+          type: string
+          example: "Analgesic"
+        quantity:
+          type: integer
+          example: 120
+        unit:
+          type: string
+          example: "box"
+        price:
+          type: number
+          format: float
+          example: 50.00
+        branch:
+          type: string
+          example: "Kilimani Branch"
+        pharmacy_id:
+          type: string
+          format: uuid
+          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+
+    MedicationInput:
+      type: object
+      required:
+        - name
+        - quantity
+        - price
+        - pharmacy_id
+      properties:
+        name:
+          type: string
+          example: "Paracetamol 500mg"
+        form:
+          type: string
+          example: "Tablet"
+        category:
+          type: string
+          example: "Analgesic"
+        quantity:
+          type: integer
+          example: 120
+        unit:
+          type: string
+          example: "box"
+        price:
+          type: number
+          format: float
+          example: 50.00
+        branch:
+          type: string
+          example: "Kilimani Branch"
+        pharmacy_id:
+          type: string
+          format: uuid
+          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: "Medication not found"
+
+    ValidationError:
+      type: object
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          example: "Validation failed"
+        errors:
+          type: array
+          items:
+            type: string
+          example: ["name is required", "quantity must be an integer"]
