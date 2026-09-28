@@ -265,7 +265,7 @@ describe('PATCH /api/medications/:id/stock', () => {
     const res = await request(app).patch('/api/medications/m1/stock').send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe('quantity is required');
+    expect(res.body.error).toBe('quantity is required');
     expect(supabase.from).not.toHaveBeenCalled();
   });
 
@@ -273,7 +273,7 @@ describe('PATCH /api/medications/:id/stock', () => {
     const res = await request(app).patch('/api/medications/m1/stock').send({ quantity: 'lots' });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe('quantity must be an integer');
+    expect(res.body.error).toBe('quantity must be an integer');
   });
 
   it('returns 404 when the medication does not exist', async () => {

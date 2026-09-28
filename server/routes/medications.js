@@ -154,10 +154,10 @@ router.patch('/:id/stock', async (req, res) => {
   const { quantity } = req.body;
 
   if (quantity === undefined || quantity === null) {
-    return res.status(400).json({ message: 'quantity is required' });
+    return res.status(400).json({ error: 'quantity is required' });
   }
   if (!Number.isInteger(quantity)) {
-    return res.status(400).json({ message: 'quantity must be an integer' });
+    return res.status(400).json({ error: 'quantity must be an integer' });
   }
 
   try {
