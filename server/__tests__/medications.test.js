@@ -111,6 +111,12 @@ describe('POST /api/medications', () => {
     expect(res.body.errors).toContain('quantity must be an integer');
   });
 
+  it('accepts a quantity of 0 (out of stock)', async () => {
+    const res = await createMed({ quantity: 0 });
+    expect(res.status).toBe(201);
+    expect(res.body.quantity).toBe(0);
+  });
+
   it('returns 404 for a pharmacy_id that does not exist', async () => {
     const res = await request(app).post('/api/medications').send({ ...validMed(), pharmacy_id: FAKE_ID });
     expect(res.status).toBe(404);
