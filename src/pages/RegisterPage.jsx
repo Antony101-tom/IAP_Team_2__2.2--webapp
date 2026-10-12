@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { loadAccounts, saveAccounts, findAccount, setSession } from '../utils/accounts';
+import { setSession } from '../utils/accounts';
+import { apiFetch, errorMessage, SERVER_DOWN_MESSAGE } from '../utils/api';
 import '../styles/register.css';
 
 export default function RegisterPage() {
@@ -11,6 +12,8 @@ export default function RegisterPage() {
   const [mode, setMode] = useState('signup'); // 'signup' | 'login'
   const [accountType, setAccountType] = useState('user'); // 'user' | 'pharmacy'
   const [message, setMessage] = useState(null); // { text, type: 'error' | 'success' }
+  const [busy, setBusy] = useState(false); // true while a request is in flight
+  const [prefillEmail, setPrefillEmail] = useState(''); // carried over when we bounce to the login form
 
   // Refs for every field — same "read the DOM value on submit" approach the
   // vanilla version used, just via React refs instead of getElementById.
@@ -28,69 +31,77 @@ export default function RegisterPage() {
     setMessage(null);
   }
 
-  function redirectToDashboard(type, name) {
-    const encodedName = encodeURIComponent(name);
-    navigate(type === 'user' ? `/dashboard/user?name=${encodedName}` : `/dashboard/pharmacy?name=${encodedName}`);
+  function redirectToDashboard(type) {
+    navigate(type === 'user' ? '/dashboard/user' : '/dashboard/pharmacy');
+  }
+
+  // Passwords are read untrimmed on purpose: spaces can be part of a password.
+  const passwordOf = (id) => fields.current[id]?.value ?? '';
+
+  // Shared by sign up and log in: send the form, store the session, go to the dashboard.
+  async function submitAuth(path, payload, type, { onConflict } = {}) {
+    setMessage(null);
+    setBusy(true);
+    try {
+      const { ok, status, data } = await apiFetch(path, { method: 'POST', body: payload });
+
+      if (status === 409 && onConflict) {
+        onConflict();
+        return;
+      }
+      if (!ok) {
+        setMessage({ text: errorMessage(data, 'Something went wrong. Please try again.'), type: 'error' });
+        return;
+      }
+
+      setSession({ ...data.account, token: data.token });
+      redirectToDashboard(type);
+    } catch (err) {
+      console.error(err);
+      setMessage({ text: SERVER_DOWN_MESSAGE, type: 'error' });
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleSignup(e, type) {
     e.preventDefault();
-    setMessage(null);
-
     const email = valueOf(`signup-${type}-email`).toLowerCase();
-    const name = type === 'user' ? valueOf('signup-user-name') : valueOf('signup-pharmacy-name');
 
-    const accounts = loadAccounts();
-
-    if (findAccount(accounts, type, email)) {
-      setMessage({ text: 'An account with this email already exists. Please log in instead.', type: 'error' });
-      setMode('login');
-      setAccountType(type);
-      return;
-    }
-
-    // Pharmacies pin their exact location from the dashboard after signing
-    // up instead of during registration — latitude/longitude start unset.
-    const account = {
-      id: `${type}_${Date.now()}`,
+    // Pharmacies pin their exact location from the dashboard after signing up
+    // instead of during registration, so no coordinates are sent here.
+    return submitAuth(
+      '/api/auth/register',
+      {
+        accountType: type,
+        name: valueOf(type === 'user' ? 'signup-user-name' : 'signup-pharmacy-name'),
+        email,
+        password: passwordOf(`signup-${type}-password`),
+      },
       type,
-      name,
-      email,
-      latitude: null,
-      longitude: null,
-      password: type === 'pharmacy' ? valueOf('signup-pharmacy-password') : valueOf('signup-user-password'),
-      createdAt: Date.now(),
-    };
-
-    accounts.push(account);
-    saveAccounts(accounts);
-    setSession(account);
-    redirectToDashboard(type, name);
+      {
+        // Email already registered: send them to the login form with it filled in
+        onConflict: () => {
+          setPrefillEmail(email);
+          setMessage({ text: 'An account with this email already exists. Please log in instead.', type: 'error' });
+          setMode('login');
+          setAccountType(type);
+        },
+      }
+    );
   }
 
   function handleLogin(e, type) {
     e.preventDefault();
-    setMessage(null);
-
-    const email = valueOf(`login-${type}-email`).toLowerCase();
-    const password = valueOf(`login-${type}-password`);
-    const accounts = loadAccounts();
-    const account = findAccount(accounts, type, email);
-
-    if (!account) {
-      setMessage({ text: 'Account not found. Please sign up first.', type: 'error' });
-      setMode('signup');
-      setAccountType(type);
-      return;
-    }
-
-    if (account.password !== password) {
-      setMessage({ text: 'Incorrect password. Please try again.', type: 'error' });
-      return;
-    }
-
-    setSession(account);
-    redirectToDashboard(type, account.name);
+    return submitAuth(
+      '/api/auth/login',
+      {
+        accountType: type,
+        email: valueOf(`login-${type}-email`).toLowerCase(),
+        password: passwordOf(`login-${type}-password`),
+      },
+      type
+    );
   }
 
   const showForm = `${mode}-${accountType}`;
@@ -147,7 +158,7 @@ export default function RegisterPage() {
                 <label>Password</label>
                 <input type="password" ref={setField('signup-user-password')} required placeholder="Create a password" />
               </div>
-              <button type="submit" className="submit-btn">Register &amp; Log In</button>
+              <button type="submit" className="submit-btn" disabled={busy}>{busy ? 'Registering...' : 'Register & Log In'}</button>
             </form>
           )}
 
@@ -165,7 +176,7 @@ export default function RegisterPage() {
                 <label>Password</label>
                 <input type="password" ref={setField('signup-pharmacy-password')} required placeholder="Create a password" />
               </div>
-              <button type="submit" className="submit-btn">Register Pharmacy Portal</button>
+              <button type="submit" className="submit-btn" disabled={busy}>{busy ? 'Registering...' : 'Register Pharmacy Portal'}</button>
             </form>
           )}
 
@@ -173,13 +184,13 @@ export default function RegisterPage() {
             <form onSubmit={(e) => handleLogin(e, 'user')}>
               <div className="form-group">
                 <label>Email Address</label>
-                <input type="email" ref={setField('login-user-email')} required placeholder="e.g., john@example.com" />
+                <input type="email" ref={setField('login-user-email')} defaultValue={prefillEmail} required placeholder="e.g., john@example.com" />
               </div>
               <div className="form-group">
                 <label>Password</label>
                 <input type="password" ref={setField('login-user-password')} required placeholder="Enter your password" />
               </div>
-              <button type="submit" className="submit-btn">Log In</button>
+              <button type="submit" className="submit-btn" disabled={busy}>{busy ? 'Logging in...' : 'Log In'}</button>
             </form>
           )}
 
@@ -187,13 +198,13 @@ export default function RegisterPage() {
             <form onSubmit={(e) => handleLogin(e, 'pharmacy')}>
               <div className="form-group">
                 <label>Official Email</label>
-                <input type="email" ref={setField('login-pharmacy-email')} required placeholder="e.g., info@halisipharmacy.co.ke" />
+                <input type="email" ref={setField('login-pharmacy-email')} defaultValue={prefillEmail} required placeholder="e.g., info@halisipharmacy.co.ke" />
               </div>
               <div className="form-group">
                 <label>Password</label>
                 <input type="password" ref={setField('login-pharmacy-password')} required placeholder="Enter your password" />
               </div>
-              <button type="submit" className="submit-btn">Log In</button>
+              <button type="submit" className="submit-btn" disabled={busy}>{busy ? 'Logging in...' : 'Log In'}</button>
             </form>
           )}
 

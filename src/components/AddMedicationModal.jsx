@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react';
 
 export default function AddMedicationModal({ open, defaultBranch, onClose, onSave }) {
   const [form, setForm] = useState({ name: '', form_: '', category: '', quantity: '', unit: '', price: '', branch: '' });
-  const [error, setError] = useState(false);
+  const [error, setError] = useState(''); // message to show, or '' for none
+  const [saving, setSaving] = useState(false);
 
   // Reset the form fresh every time the modal opens, same as the vanilla
   // openAddModal() which cleared inputs and re-applied the default branch.
   useEffect(() => {
     if (open) {
       setForm({ name: '', form_: '', category: '', quantity: '', unit: '', price: '', branch: defaultBranch || '' });
-      setError(false);
+      setError('');
+      setSaving(false);
     }
   }, [open, defaultBranch]);
 
@@ -19,21 +21,29 @@ export default function AddMedicationModal({ open, defaultBranch, onClose, onSav
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
   }
 
-  function submit() {
+  async function submit() {
     const name = form.name.trim();
     if (!name || form.quantity === '' || form.price === '') {
-      setError(true);
+      setError('Please fill in the medication name, quantity, and price.');
       return;
     }
-    onSave({
-      name,
-      form: form.form_.trim(),
-      category: form.category.trim() || 'General',
-      quantity: Number(form.quantity),
-      unit: form.unit.trim() || 'Units',
-      price: Number(form.price),
-      branch: form.branch.trim() || defaultBranch || '',
-    });
+    setError('');
+    setSaving(true);
+    try {
+      // onSave may be async and may throw with a message to show (e.g. a server error)
+      await onSave({
+        name,
+        form: form.form_.trim(),
+        category: form.category.trim() || 'General',
+        quantity: Number(form.quantity),
+        unit: form.unit.trim() || 'Units',
+        price: Number(form.price),
+        branch: form.branch.trim() || defaultBranch || '',
+      });
+    } catch (err) {
+      setError(err.message || 'Could not save the medication.');
+      setSaving(false);
+    }
   }
 
   return (
@@ -74,11 +84,11 @@ export default function AddMedicationModal({ open, defaultBranch, onClose, onSav
             <input type="text" value={form.branch} onChange={update('branch')} placeholder="e.g. Kilimani Branch" />
           </div>
         </div>
-        {error && <p className="form-error">Please fill in the medication name, quantity, and price.</p>}
+        {error && <p className="form-error">{error}</p>}
 
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={submit}>Save to Inventory</button>
+          <button className="btn-primary" onClick={submit} disabled={saving}>{saving ? 'Saving...' : 'Save to Inventory'}</button>
         </div>
       </div>
     </div>

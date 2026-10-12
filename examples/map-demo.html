@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediTrac public API: map demo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; display: flex; height: 100vh; }
+    #side { width: 340px; padding: 14px; overflow-y: auto; border-right: 1px solid #e2e8f0; box-sizing: border-box; }
+    #map { flex: 1; }
+    h1 { font-size: 1.1rem; margin: 0 0 4px; }
+    p.hint { font-size: .8rem; color: #718096; margin: 4px 0 10px; }
+    label { display: block; font-size: .8rem; font-weight: 600; margin: 10px 0 3px; }
+    input, select, button { width: 100%; padding: 8px; box-sizing: border-box; font-size: .9rem; }
+    button { margin-top: 8px; background: #2b6cb0; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+    .row { display: flex; gap: 8px; } .row > * { flex: 1; }
+    .card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; margin-top: 8px; font-size: .85rem; }
+    .card b { display: block; } .muted { color: #718096; } #status { margin-top: 10px; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <div id="side">
+    <h1>Pharmacy finder</h1>
+    <p class="hint">A separate app built only on the MediTrac public API. Click the map to set where you are.</p>
+
+    <label for="api">API address</label>
+    <input id="api" value="http://localhost:5000">
+
+    <label for="q">Medicine (name or category), or leave empty to list pharmacies</label>
+    <input id="q" placeholder="e.g. amoxicillin">
+
+    <div class="row">
+      <div><label for="radius">Within</label>
+        <select id="radius"><option value="2">2 km</option><option value="5" selected>5 km</option>
+          <option value="10">10 km</option><option value="">Any distance</option></select></div>
+      <div><label for="stock">Show</label>
+        <select id="stock"><option value="true">In stock only</option><option value="">Everything</option></select></div>
+    </div>
+
+    <button id="go">Search</button>
+    <button id="locate" style="background:#4a5568">Use my location</button>
+    <div id="status"></div>
+    <div id="list"></div>
+  </div>
+  <div id="map"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // Where "you" are. Starts in Nairobi CBD; click the map or use your location to change it.
+    let me = { lat: -1.2833, lng: 36.8219 };
+    const map = L.map('map').setView([me.lat, me.lng], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
+    const pins = L.layerGroup().addTo(map);
+    let meMarker = L.marker([me.lat, me.lng]).addTo(map).bindPopup('You are here');
+
+    function setMe(lat, lng) {
+      me = { lat, lng };
+      meMarker.setLatLng([lat, lng]);
+      map.setView([lat, lng], 13);
+    }
+    map.on('click', (e) => { setMe(e.latlng.lat, e.latlng.lng); search(); });
+    $('locate').onclick = () => navigator.geolocation && navigator.geolocation.getCurrentPosition(
+      (p) => { setMe(p.coords.latitude, p.coords.longitude); search(); },
+      () => ($('status').textContent = 'Location blocked: click the map instead.'));
+
+    async function get(path, params) {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
+      const res = await fetch(`${$('api').value.replace(/\/$/, '')}${path}?${qs}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).errors?.join(', ') || `HTTP ${res.status}`);
+      return res.json();
+    }
+
+    // Draws one pin per pharmacy. `byPharmacy` is [{ name, latitude, longitude, distance_km, lines: [html] }]
+    function draw(byPharmacy) {
+      pins.clearLayers();
+      $('list').innerHTML = '';
+      byPharmacy.forEach((ph) => {
+        const dist = ph.distance_km != null ? `${ph.distance_km} km away` : '';
+        const body = `<b>${esc(ph.name)}</b><br><span class="muted">${dist}</span><br>${ph.lines.join('<br>')}`;
+        L.marker([ph.latitude, ph.longitude]).addTo(pins).bindPopup(body);
+        $('list').insertAdjacentHTML('beforeend', `<div class="card"><b>${esc(ph.name)}</b><span class="muted">${dist}</span>${ph.lines.join('<br>')}</div>`);
+      });
+    }
+
+    async function search() {
+      $('status').textContent = 'Searching...';
+      const near = { lat: me.lat, lng: me.lng, radius_km: $('radius').value };
+      try {
+        const q = $('q').value.trim();
+        let groups;
+        if (q) {
+          // "Where can I find this medicine near me?"
+          const meds = await get('/api/medications/search', { name: q, in_stock: $('stock').value, ...near });
+          const map1 = new Map();
+          meds.filter((m) => m.latitude != null).forEach((m) => {
+            if (!map1.has(m.pharmacy_id)) map1.set(m.pharmacy_id, { name: m.pharmacy, latitude: m.latitude, longitude: m.longitude, distance_km: m.distance_km, lines: [] });
+            map1.get(m.pharmacy_id).lines.push(`${esc(m.name)}: KES ${m.price} (${m.quantity} ${esc(m.unit || 'left')})`);
+          });
+          groups = [...map1.values()];
+          $('status').textContent = groups.length ? `${meds.length} listing(s) at ${groups.length} pharmacy(ies)` : `Nothing found for "${q}" nearby.`;
+        } else {
+          // Just show the pharmacies around me
+          const list = await get('/api/pharmacies', near);
+          groups = list.map((p) => ({ ...p, lines: [`${p.in_stock_count} medicines in stock`] }));
+          $('status').textContent = `${groups.length} pharmacy(ies) nearby`;
+        }
+        draw(groups);
+      } catch (err) {
+        $('status').textContent = `Could not load data: ${err.message}`;
+      }
+    }
+
+    $('go').onclick = search;
+    $('q').addEventListener('keydown', (e) => e.key === 'Enter' && search());
+    search();
+  </script>
+</body>
+</html>
