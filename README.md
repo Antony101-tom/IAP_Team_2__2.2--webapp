@@ -1,124 +1,147 @@
-MediTrac Server API
-Overview
-The MediTrac API is a RESTful backend service built for managing medication inventories, tracking pharmacy stock, and handling patient search requests.
+# MediTrac
 
-Authentication
-Note: Auth is currently mocked for testing.
-Include the following header with all requests:
-Authorization: Bearer mock-token-123
+MediTrac helps patients find medications at nearby pharmacies and lets pharmacies manage what they have in stock.
 
-How to Run the API Locally
-Follow these exact steps from a clean terminal:
+- **Patients** can search for a medication, see which registered pharmacies carry it, and view them on a map sorted by distance.
+- **Pharmacies** can register an account, pin their location on a map, and manage their medication inventory from a dashboard.
+- Accounts, medications and patient trackers are stored in a **Supabase** (PostgreSQL) database and served by an **Express** API (`server/`), so data is shared across browsers and devices, and the database is hosted for you.
 
-Clone the repository and navigate to the project root:
-git clone https://github.com/Antony101-tom/MEDITRAC-website-project.git
-cd IAP_Team_2__2.2--webapp
+This is the React + Vite version of the app, built with `react-router-dom` for routing and plain `leaflet` for the maps.
 
-Navigate to the server folder and install dependencies:
+## Getting Started
+
+You need **Node 18+** and a free **Supabase** account. Run the backend and the frontend in two terminals. To put the whole app online, see [HOSTING.md](HOSTING.md).
+
+### 1. Database (Supabase)
+
+1. Create a project at supabase.com and remember the database password you choose.
+2. Open **SQL Editor > New query**, paste the contents of `server/schema.sql`, and click **Run**. This creates the four tables. Then do the same with `server/seed_data.sql` for optional demo data (see below).
+3. Copy your connection string (**Connect** at the top of the dashboard, or **Project Settings > Database**). Choose the **Session pooler** one and replace `[YOUR-PASSWORD]` with your password.
+
+[HOSTING.md](HOSTING.md) walks through each of these with the details that usually go wrong.
+
+### 2. Backend (port 5000)
+
+```bash
 cd server
+cp .env.example .env     # then edit .env: paste your DATABASE_URL and set a JWT_SECRET
 npm install
+npm start                # or: npm run dev   (auto-restarts with nodemon)
+```
 
-Start the server:
-npm start
+Generate a `JWT_SECRET` with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. You should see `Server running on http://localhost:5000` and, right under it, `[database] Connected. The tables are ready.`
 
-The API will start at http://localhost:5000.
+### 3. Frontend (port 5173)
 
-Quickstart (Copy-Paste Test)
-Run this single command in your terminal to verify the API is running:
+```bash
+# from the project root
+npm install
+npm run dev
+```
 
-curl -X GET http://localhost:5000/api/medications -H "Authorization: Bearer mock-token-123"
+Visit `http://localhost:5173` and allow location access when your browser prompts for it. This is what lets the app calculate distances to nearby pharmacies. In development Vite forwards `/api/*` to the backend, so nothing else needs configuring.
 
-Major Endpoints Reference
-### 1. GET /api/medications
-Retrieve all medications.
+### Try it out
 
-* **Request:**
-curl -X GET http://localhost:5000/api/medications
+Demo accounts from `seed_data.sql` all use the password `Password123` (delete them before going live):
 
-* **Success Response (200 OK):**
-[
-{
-"id": "cd72c942-73cd-4723-8b7a-d60642148e26",
-"pharmacy_id": "5bf2b70b-17b6-4f55-8720-2c393d945e4a",
-"name": "Paracetamol 500 mg",
-"form": "Tablets 10 x 10 pack",
-"category": "Pain relief",
-"quantity": 20,
-"unit": "Boxes",
-"price": 500,
-"branch": "Hurlinghum"
-}
-]
+| Account | Email |
+|---|---|
+| Patient | `patient@example.com` |
+| Pharmacy | `info@halisipharmacy.co.ke` |
+| Pharmacy | `wellness@example.com` |
+| Pharmacy | `citycare@example.com` |
 
+1. **Register a pharmacy account** (or log in as a demo one), pin its location on the map, and add a few medications.
+2. **Create a separate patient account** (use a second browser tab: each tab keeps its own login).
+3. Search for one of those medications as the patient. The pharmacy shows up with its distance, and you can **Track** a listing.
+4. Back on the pharmacy dashboard, change a quantity (set it to 0 to mark it out of stock), then reload the patient dashboard to see it.
 
-### 2. POST /api/medications
-Create a new medication entry.
+Passwords are hashed with bcrypt, and the API returns a signed login token that the frontend sends with every request that needs a login. A pharmacy can only change its own stock when it sends that token.
 
-* **Request:**
-  curl -X POST http://localhost:5000/api/medications \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer mock-token-123" \
-    -d "{\"name\": \"Amoxicillin 500mg\", \"form\": \"Capsule\", \"category\": \"Antibiotics\", \"quantity\": 50, \"unit\": \"Boxes\", \"price\": 350, \"branch\": \"Kilimani Branch\"}"
+To produce a production build:
 
-* **Success Response (201 Created):**
-  {
-    "id": "e8a91b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c",
-    "name": "Amoxicillin 500mg",
-    "form": "Capsule",
-    "category": "Antibiotics",
-    "quantity": 50,
-    "unit": "Boxes",
-    "price": 350,
-    "branch": "Kilimani Branch"
-  }
+```bash
+npm run build
+npm run preview   # serve the built dist/ folder locally to sanity check it
+```
 
-### 3. GET /api/medications/:id
-Retrieve a single medication by ID.
+When the frontend is hosted at a different address than the API, set `VITE_API_URL` (for example `https://api.example.com`) when building, and add the frontend's address to `CORS_ORIGIN` in `server/.env`.
 
-* **Request:**
-  curl -X GET http://localhost:5000/api/medications/cd72c942-73cd-4723-8b7a-d60642148e26
+### If you see "Server error during login" (or registration)
 
-* **Success Response (200 OK):**
-  {
-    "id": "cd72c942-73cd-4723-8b7a-d60642148e26",
-    "pharmacy_id": "5bf2b70b-17b6-4f55-8720-2c393d945e4a",
-    "name": "Paracetamol 500 mg",
-    "form": "Tablets 10 x 10 pack",
-    "category": "Pain relief",
-    "quantity": 20,
-    "unit": "Boxes",
-    "price": 500,
-    "branch": "Hurlinghum"
-  }
+The browser only shows a generic message. The real reason is printed in the terminal where you ran
+`npm start`: look right below "Server running..." for lines starting with `[database]`, or a
+`Login error:` line when you try to log in. The usual causes:
 
-### 4. DELETE /api/medications/:id
-Delete a medication by ID.
+| What the terminal says | Fix |
+|---|---|
+| `password authentication failed` | The password in `DATABASE_URL` is wrong. Reset it in Supabase (Project Settings > Database) and paste the new one in. Encode special characters, e.g. `@` as `%40` |
+| `Tenant or user not found` | The username in `DATABASE_URL` is wrong. Copy the whole string again from Supabase |
+| `ENOTFOUND` | The address is wrong. Copy the **Session pooler** string again from Supabase |
+| `Connection terminated due to connection timeout` | Your network is blocking the database port. Run `Test-NetConnection YOUR-HOST -Port 5432` in PowerShell. If it says `False`, change `:5432` to `:6543` in `DATABASE_URL`, or try another network (a phone hotspot). If both ports work and it still fails, run `npm run check:db` in `server/` to see which step stalls. See HOSTING.md |
+| `The table "users" is missing` | Run `server/schema.sql` in the Supabase SQL Editor |
+| `DATABASE_URL is not set` | Create `server/.env` from `.env.example` |
 
-* **Request:**
-  curl -X DELETE http://localhost:5000/api/medications/cd72c942-73cd-4723-8b7a-d60642148e26 \
-    -H "Authorization: Bearer mock-token-123"
+After editing `server/.env`, stop the server (Ctrl+C) and run `npm start` again. It only reads `.env` at startup.
 
-* **Success Response (200 OK / 204 No Content):**
-  {
-    "message": "Medication deleted successfully"
-  }
+### Tests
 
-  ### Error Response Reference
-* **Not Found (404 Not Found):**
-GET /api/medications/9999
-{
-"error": "Medication not found"
-}
-Returned when seraching for or modifying a medication ID that doesnt exist
+```bash
+cd server
+npm test            # Jest + Supertest; uses a fake database, so Supabase isn't needed
+npm run test:live   # tests every endpoint of a RUNNING server against openapi.yaml (see TESTING.md)
+```
 
-* **Bad Request(400 Bad Request):**
-Returned when creating a medication (POST /api/medications) with missing required fields:
-{
-"error": "Missing required field: name"
-}
+## Project Structure
 
-* **Unauthorised (401 Unauthorized):**
-Returned when attempting protected requests without a valid bearer token header:
-{
-"error": "Unauthorized access. Missing or invalid Authorization token."
-}
+```
+meditrac-react/
+├── index.html
+├── public/
+│   └── logos/
+├── server/
+│   ├── index.js              # Express app
+│   ├── db.js                 # PostgreSQL (Supabase) connection pool
+│   ├── dbCheck.js            # startup check that explains database problems
+│   ├── scripts/test-endpoints.js  # npm run test:live
+│   ├── schema.sql            # tables (run in the Supabase SQL Editor)
+│   ├── seed_data.sql         # optional demo data
+│   ├── geo.js                # distance / near-me helpers
+│   ├── pharmacyDetails.js    # validation for a pharmacy's public details
+│   ├── .env.example          # copy to .env
+│   ├── middleware/auth.js    # login-token checks
+│   ├── routes/               # auth, medications, pharmacies, tracking
+│   └── __tests__/
+├── src/
+│   ├── main.jsx
+│   ├── App.jsx
+│   ├── index.css
+│   ├── pages/
+│   │   ├── HomePage.jsx
+│   │   ├── RegisterPage.jsx
+│   │   ├── UserDashboardPage.jsx
+│   │   └── PharmacyDashboardPage.jsx
+│   ├── components/
+│   │   ├── Navbar.jsx
+│   │   ├── PharmacyLocationPicker.jsx
+│   │   ├── ResultsMap.jsx
+│   │   └── AddMedicationModal.jsx
+│   ├── utils/
+│   │   ├── accounts.js        # per-tab login session
+│   │   ├── api.js             # fetch helper for the Express API
+│   │   ├── medications.js
+│   │   ├── geo.js
+│   │   └── useGeolocation.js
+│   └── styles/
+```
+
+## Notes
+
+- The login session is kept per browser tab (`sessionStorage`), so you can be a pharmacy in one tab and a patient in another. Everything else is in the Supabase database.
+- Only pharmacies that have pinned their location on the map have coordinates. Others show "Distance unknown" and sort after pharmacies that do.
+- Other apps can read pharmacy data and build their own map: see `PUBLIC_API.md` and the working example in `examples/map-demo.html`.
+- Other apps can also create a pharmacy and upload and update their own stock: see `PARTNER_API.md` and `examples/partner-sync.js`.
+- To host the app online (Supabase for the database, plus a host for the API and the website): see `HOSTING.md`. To let teammates use the shared data without database access: see `TEAM_SETUP.md`. To test the endpoints: see `TESTING.md`.
+- `openapi.yaml` is the agreed API contract, and the server follows it (checked by `server/__tests__/contract.test.js`). Everything added beyond it is described in `openapi-extensions.yaml`, and the differences are listed in `CONTRACT_DEVIATIONS.md`.
+- The contract's write endpoints take no login token, so by default they work without one. Set `REQUIRE_LOGIN_FOR_WRITES=true` in `server/.env` before the server is reachable by people you don't trust.

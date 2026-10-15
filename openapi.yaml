@@ -9,11 +9,6 @@ info:
 servers:
   - url: http://localhost:5000/api
     description: Local development server
-  # Add your hosted URL here once deployed, e.g.:
-  # - url: https://your-app.onrender.com/api
-  #   description: Live server
-
-security: []
 
 paths:
 
@@ -29,8 +24,6 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Medication'
-        '500':
-          $ref: '#/components/responses/ServerError'
 
     post:
       summary: Create a new medication record.
@@ -53,21 +46,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationError'
-        '404':
-          description: The pharmacy_id does not match any existing pharmacy.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: "Pharmacy not found"
-        '500':
-          $ref: '#/components/responses/ServerError'
 
   /medications/by-pharmacy:
     get:
       summary: Return medications belonging to a single pharmacy, by pharmacy name.
-      description: The name match is exact and case-sensitive.
       parameters:
         - name: name
           in: query
@@ -75,7 +57,7 @@ paths:
           description: The pharmacy's name to filter medications by.
           schema:
             type: string
-          example: "Jadeezy Pharmacy"
+          example: "Halisi Pharmaceuticals"
       responses:
         '200':
           description: A list of medications for the given pharmacy.
@@ -97,18 +79,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                error: "Pharmacy not found"
-        '500':
-          $ref: '#/components/responses/ServerError'
 
   /medications/{id}:
     put:
       summary: Replace an existing medication's details.
-      description: >
-        Two different 404 responses are possible: "Pharmacy not found" if the
-        pharmacy_id in the body does not exist, or "Medication not found" if
-        the id in the URL does not exist.
       parameters:
         - name: id
           in: path
@@ -117,7 +91,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "9db9929c-3999-484b-8cf9-936ea3d4e349"
+          example: "1797cd3d-cd55-41bc-b791-ffbf1c0187b8"
       requestBody:
         required: true
         content:
@@ -138,28 +112,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ValidationError'
         '404':
-          description: Pharmacy not found, or no medication exists with the given id.
+          description: No medication exists with the given id.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                pharmacyMissing:
-                  summary: pharmacy_id does not exist
-                  value:
-                    error: "Pharmacy not found"
-                medicationMissing:
-                  summary: id in the URL does not exist
-                  value:
-                    error: "Medication not found"
-        '500':
-          $ref: '#/components/responses/ServerError'
 
     delete:
       summary: Delete a medication record.
-      description: >
-        Deleting is permanent. To try it safely, create a throwaway record with
-        POST /medications, copy the returned id, then delete that one.
       parameters:
         - name: id
           in: path
@@ -168,7 +128,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "4984de2e-d9dd-45d9-99ac-4f292b3365c4"
+          example: "d4e5f6a7-1111-2222-3333-444455556666"
       responses:
         '204':
           description: Medication deleted successfully. No content returned.
@@ -178,8 +138,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '500':
-          $ref: '#/components/responses/ServerError'
 
   /medications/{id}/stock:
     patch:
@@ -192,7 +150,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "9db9929c-3999-484b-8cf9-936ea3d4e349"
+          example: "1797cd3d-cd55-41bc-b791-ffbf1c0187b8"
       requestBody:
         required: true
         content:
@@ -224,20 +182,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '500':
-          $ref: '#/components/responses/ServerError'
 
 components:
-  responses:
-    ServerError:
-      description: Unexpected server or database failure.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          example:
-            error: "Failed to fetch medications"
-
   schemas:
     Medication:
       type: object
@@ -251,12 +197,7 @@ components:
         id:
           type: string
           format: uuid
-          example: "9db9929c-3999-484b-8cf9-936ea3d4e349"
-        pharmacy_id:
-          type: string
-          format: uuid
-          description: The id of the pharmacy (a row in the profiles table) that stocks this medication.
-          example: "719b4e69-ce9c-4dab-9eae-722dc0f371b5"
+          example: "d4e5f6a7-1111-2222-3333-444455556666"
         name:
           type: string
           example: "Paracetamol 500mg"
@@ -274,14 +215,15 @@ components:
           example: "box"
         price:
           type: number
-          example: 50
+          format: float
+          example: 50.00
         branch:
           type: string
           example: "Kilimani Branch"
-        created_at:
+        pharmacy_id:
           type: string
-          format: date-time
-          example: "2026-10-12T11:29:11.492955+00:00"
+          format: uuid
+          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
 
     MedicationInput:
       type: object
@@ -308,15 +250,15 @@ components:
           example: "box"
         price:
           type: number
-          example: 50
+          format: float
+          example: 50.00
         branch:
           type: string
           example: "Kilimani Branch"
         pharmacy_id:
           type: string
           format: uuid
-          description: Must be the id of an existing pharmacy, otherwise the API returns 404 "Pharmacy not found".
-          example: "719b4e69-ce9c-4dab-9eae-722dc0f371b5"
+          example: "b3f1c2a0-1234-4a5b-9c3d-abcdef123456"
 
     Error:
       type: object

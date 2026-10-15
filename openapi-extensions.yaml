@@ -1,0 +1,872 @@
+# Additions to the API beyond the agreed contract (openapi.yaml). See info.description.
+openapi: 3.0.0
+info:
+  title: 'MediTrac API: extensions'
+  version: 1.0.0
+  description: "Everything the API offers BEYOND the agreed contract in openapi.yaml. The contract is unchanged:\
+    \ every operation in it behaves exactly as written there.\n\nHow the contract operations are extended (all additive,\
+    \ nothing a contract-following client needs to know about):\n  * Login token (optional). POST/PUT /medications,\
+    \ PUT/PATCH/DELETE on /medications/{id}... take no token in the contract, and work without one. If a pharmacy\
+    \ DOES send its bearer token, it can only change its own medications (403 / 404 otherwise). Setting REQUIRE_LOGIN_FOR_WRITES=true\
+    \ on the server makes the token mandatory (401 without it).\n  * GET /medications also returns pharmacy (name),\
+    \ latitude and longitude (the pharmacy's map pin, null until pinned) on each record.\n  * A medication's optional\
+    \ text fields (form, category, unit, branch) are left out when empty, never null.\n  * A pharmacy may add an\
+    \ optional sku to POST/PUT /medications. Duplicate sku for one pharmacy returns 409.\n  * Quantity and price\
+    \ below 0, over-long text, or a pharmacy_id that matches no pharmacy return 400 with the contract's ValidationError.\n\
+    \  * Rate limits (429), request bodies over 1 MB (413) and malformed JSON (400) return JSON errors.\n"
+servers:
+- url: http://localhost:5000/api
+  description: Local development server
+paths:
+  /medications/search:
+    get:
+      summary: Where can I find this medicine? (public, nearest first)
+      description: 'Matches the medicine''s name or category. Every result carries its pharmacy''s name and map
+        pin. Public and read-only; any website may call it from a browser. Rate limited to 120 requests per minute
+        per IP.
+
+        '
+      parameters:
+      - name: name
+        in: query
+        required: true
+        description: Medicine name or category to look for.
+        schema:
+          type: string
+        example: amoxicillin
+      - name: in_stock
+        in: query
+        description: Set to true to hide listings with quantity 0.
+        schema:
+          type: boolean
+      - name: lat
+        in: query
+        description: The user's latitude. Give together with lng. Adds distance_km and sorts nearest first.
+        schema:
+          type: number
+          minimum: -90
+          maximum: 90
+        example: -1.2833
+      - name: lng
+        in: query
+        description: The user's longitude. Give together with lat.
+        schema:
+          type: number
+          minimum: -180
+          maximum: 180
+        example: 36.8219
+      - name: radius_km
+        in: query
+        description: Only return results within this many km. Needs lat and lng.
+        schema:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 500
+      - name: limit
+        in: query
+        description: Maximum number of results.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      responses:
+        '200':
+          description: Matching listings, nearest first when lat and lng are given.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MedicationNearby'
+        '400':
+          description: Missing name, or invalid lat, lng, radius_km or limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+  /pharmacies:
+    get:
+      summary: List pharmacies that have pinned their location (public).
+      description: 'Public and read-only. Never includes emails or account data. With lat and lng each pharmacy
+        gets distance_km and the list is nearest first.
+
+        '
+      parameters:
+      - name: lat
+        in: query
+        description: The user's latitude. Give together with lng. Adds distance_km and sorts nearest first.
+        schema:
+          type: number
+          minimum: -90
+          maximum: 90
+        example: -1.2833
+      - name: lng
+        in: query
+        description: The user's longitude. Give together with lat.
+        schema:
+          type: number
+          minimum: -180
+          maximum: 180
+        example: 36.8219
+      - name: radius_km
+        in: query
+        description: Only return results within this many km. Needs lat and lng.
+        schema:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 500
+      - name: limit
+        in: query
+        description: Maximum number of results.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      responses:
+        '200':
+          description: Pharmacies with a map pin.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PharmacyPublic'
+        '400':
+          description: Invalid lat, lng, radius_km or limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+  /pharmacies/{id}:
+    get:
+      summary: One pharmacy and everything it stocks (public).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: The pharmacy with its medications.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/PharmacyProfile'
+                - type: object
+                  properties:
+                    medications:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Medication'
+        '404':
+          description: No pharmacy with that id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /medications/bulk:
+    post:
+      summary: Upload or refresh a whole stock list in one call.
+      description: 'Safe to repeat. Each item is matched to one of YOUR pharmacy''s listings (by sku if given, otherwise
+        by exact name + form) and updated, otherwise created. All or nothing: if any item is invalid nothing is
+        saved. pharmacy_id always comes from your login.
+
+        '
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - medications
+              properties:
+                medications:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    $ref: '#/components/schemas/MedicationBulkItem'
+      responses:
+        '200':
+          description: What was created and updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: integer
+                  updated:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        sku:
+                          type: string
+                          nullable: true
+                        name:
+                          type: string
+                        action:
+                          type: string
+                          enum:
+                          - created
+                          - updated
+        '400':
+          description: Invalid list. Every problem is reported with its position, for example medications[3] quantity
+            must be 0 or more.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Missing, invalid or expired login token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not a pharmacy account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Request body over 1 MB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /medications/mine:
+    get:
+      summary: Return the logged-in pharmacy's own medications.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: A list of the pharmacy's medications.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Medication'
+        '401':
+          description: Missing, invalid or expired login token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not a pharmacy account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/register:
+    post:
+      summary: Create a patient or pharmacy account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthInput'
+      responses:
+        '201':
+          description: Account created; the login token and account are returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResult'
+        '400':
+          description: Invalid accountType, name, email or password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: An account of that type already uses this email.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/login:
+    post:
+      summary: Log in as a patient or pharmacy.
+      description: Limited to 20 failed attempts per IP per 15 minutes (429 after that).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - accountType
+              - email
+              - password
+              properties:
+                accountType:
+                  type: string
+                  enum:
+                  - user
+                  - pharmacy
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login succeeded; the login token and account are returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResult'
+        '401':
+          description: Wrong email or password (same answer for both).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /pharmacies/me:
+    get:
+      summary: Return the logged-in pharmacy's profile, including its map pin.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The pharmacy profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PharmacyProfile'
+        '401':
+          description: Missing, invalid or expired login token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      summary: Update the logged-in pharmacy's own details.
+      description: 'Send only the fields to change. phone, address, opening_hours and the map pin are shown publicly.
+        An empty string clears an optional field. Email and password cannot be changed here.
+
+        '
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 150
+                phone:
+                  type: string
+                  maxLength: 30
+                address:
+                  type: string
+                  maxLength: 255
+                opening_hours:
+                  type: string
+                  maxLength: 100
+                latitude:
+                  type: number
+                  description: Give together with longitude.
+                longitude:
+                  type: number
+      responses:
+        '200':
+          description: The updated pharmacy profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PharmacyProfile'
+        '400':
+          description: Nothing to update, or an invalid value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Missing, invalid or expired login token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /pharmacies/me/location:
+    put:
+      summary: Save the logged-in pharmacy's map pin.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - latitude
+              - longitude
+              properties:
+                latitude:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                  example: -1.2921
+                longitude:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+                  example: 36.8219
+      responses:
+        '200':
+          description: The updated pharmacy profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PharmacyProfile'
+        '400':
+          description: Coordinates missing or out of range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Missing, invalid or expired login token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /tracking:
+    get:
+      summary: Return the ids of the medications the logged-in patient is tracking.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: A list of medication ids, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+        '401':
+          description: Missing, invalid or expired login token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not a patient account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Track a medication listing (tracking it twice is harmless).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - medication_id
+              properties:
+                medication_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: The medication is now tracked.
+        '400':
+          description: medication_id is not a uuid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: No medication exists with that id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /tracking/{medicationId}:
+    delete:
+      summary: Stop tracking a medication.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: medicationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No longer tracked. No content returned.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The token returned by /auth/register or /auth/login.
+  schemas:
+    Medication:
+      type: object
+      required:
+      - id
+      - name
+      - quantity
+      - price
+      - pharmacy_id
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: d4e5f6a7-1111-2222-3333-444455556666
+        name:
+          type: string
+          example: Paracetamol 500mg
+        form:
+          type: string
+          example: Tablet
+        category:
+          type: string
+          example: Analgesic
+        quantity:
+          type: integer
+          example: 120
+        unit:
+          type: string
+          example: box
+        price:
+          type: number
+          format: float
+          example: 50.0
+        branch:
+          type: string
+          example: Kilimani Branch
+        pharmacy_id:
+          type: string
+          format: uuid
+          example: b3f1c2a0-1234-4a5b-9c3d-abcdef123456
+    MedicationInput:
+      type: object
+      required:
+      - name
+      - quantity
+      - price
+      - pharmacy_id
+      properties:
+        name:
+          type: string
+          example: Paracetamol 500mg
+        form:
+          type: string
+          example: Tablet
+        category:
+          type: string
+          example: Analgesic
+        quantity:
+          type: integer
+          example: 120
+        unit:
+          type: string
+          example: box
+        price:
+          type: number
+          format: float
+          example: 50.0
+        branch:
+          type: string
+          example: Kilimani Branch
+        pharmacy_id:
+          type: string
+          format: uuid
+          example: b3f1c2a0-1234-4a5b-9c3d-abcdef123456
+    Error:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: string
+          example: Medication not found
+    ValidationError:
+      type: object
+      required:
+      - message
+      - errors
+      properties:
+        message:
+          type: string
+          example: Validation failed
+        errors:
+          type: array
+          items:
+            type: string
+          example:
+          - name is required
+          - quantity must be an integer
+    MedicationWithPharmacy:
+      allOf:
+      - $ref: '#/components/schemas/Medication'
+      - type: object
+        properties:
+          pharmacy:
+            type: string
+            description: Name of the pharmacy that owns this listing.
+            example: Halisi Pharmaceuticals
+          latitude:
+            type: number
+            nullable: true
+            description: The pharmacy's map pin, or null until it has pinned its location.
+            example: -1.2921
+          longitude:
+            type: number
+            nullable: true
+            example: 36.8219
+    AuthInput:
+      type: object
+      required:
+      - accountType
+      - name
+      - email
+      - password
+      properties:
+        accountType:
+          type: string
+          enum:
+          - user
+          - pharmacy
+        name:
+          type: string
+          example: Halisi Pharmaceuticals
+        email:
+          type: string
+          example: info@halisipharmacy.co.ke
+        password:
+          type: string
+          minLength: 6
+          maxLength: 72
+        phone:
+          type: string
+          nullable: true
+          maxLength: 30
+          example: 0712345678
+        address:
+          type: string
+          nullable: true
+          maxLength: 255
+          example: Tom Mboya Street, Nairobi
+        opening_hours:
+          type: string
+          nullable: true
+          maxLength: 100
+          example: Mon-Sat 8am-8pm
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          description: Pharmacies only. Give together with longitude.
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+    AuthResult:
+      type: object
+      required:
+      - token
+      - account
+      properties:
+        token:
+          type: string
+          description: 'Signed login token. Send it as the header Authorization: Bearer <token>.'
+        account:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            type:
+              type: string
+              enum:
+              - user
+              - pharmacy
+            name:
+              type: string
+            email:
+              type: string
+            phone:
+              type: string
+              nullable: true
+              maxLength: 30
+              example: 0712345678
+            address:
+              type: string
+              nullable: true
+              maxLength: 255
+              example: Tom Mboya Street, Nairobi
+            opening_hours:
+              type: string
+              nullable: true
+              maxLength: 100
+              example: Mon-Sat 8am-8pm
+            latitude:
+              type: number
+              nullable: true
+              description: Pharmacies only.
+            longitude:
+              type: number
+              nullable: true
+              description: Pharmacies only.
+    PharmacyProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+          maxLength: 30
+          example: 0712345678
+        address:
+          type: string
+          nullable: true
+          maxLength: 255
+          example: Tom Mboya Street, Nairobi
+        opening_hours:
+          type: string
+          nullable: true
+          maxLength: 100
+          example: Mon-Sat 8am-8pm
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+    PharmacyPublic:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Wellness Pharmacy
+        phone:
+          type: string
+          nullable: true
+          maxLength: 30
+          example: 0712345678
+        address:
+          type: string
+          nullable: true
+          maxLength: 255
+          example: Tom Mboya Street, Nairobi
+        opening_hours:
+          type: string
+          nullable: true
+          maxLength: 100
+          example: Mon-Sat 8am-8pm
+        latitude:
+          type: number
+          example: -1.2833
+        longitude:
+          type: number
+          example: 36.8219
+        in_stock_count:
+          type: integer
+          description: How many of its listings currently have quantity above 0.
+          example: 3
+        distance_km:
+          type: number
+          description: Straight-line distance from lat/lng. Only present when lat and lng were given.
+          example: 3.98
+    MedicationNearby:
+      allOf:
+      - $ref: '#/components/schemas/MedicationWithPharmacy'
+      - type: object
+        properties:
+          distance_km:
+            type: number
+            description: Straight-line distance from lat/lng. Only present when lat and lng were given.
+            example: 3.98
+    MedicationBulkItem:
+      type: object
+      required:
+      - name
+      - quantity
+      - price
+      properties:
+        sku:
+          type: string
+          maxLength: 64
+          example: AMX-500
+        name:
+          type: string
+          maxLength: 150
+          example: Amoxicillin 500mg
+        form:
+          type: string
+          maxLength: 100
+          example: Capsules
+        category:
+          type: string
+          maxLength: 80
+          example: Antibiotic
+        quantity:
+          type: integer
+          minimum: 0
+          example: 40
+        unit:
+          type: string
+          maxLength: 30
+          example: Boxes
+        price:
+          type: number
+          minimum: 0
+          example: 640
+        branch:
+          type: string
+          maxLength: 150
+          example: CBD
+    MedicationOwnerView:
+      allOf:
+      - $ref: '#/components/schemas/Medication'
+      - type: object
+        properties:
+          sku:
+            type: string
+            maxLength: 64
+            description: The pharmacy's own product code (unique within a pharmacy). Only returned to the owning
+              pharmacy, and only when set.

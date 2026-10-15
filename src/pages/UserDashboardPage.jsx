@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import ResultsMap from '../components/ResultsMap';
-import { getSession, loadPharmacyCoords } from '../utils/accounts';
-import {
-  loadAllMedications,
-  loadTrackedIds,
-  saveTrackedIds,
-  trackedKeyFor,
-  LOW_STOCK_THRESHOLD,
-} from '../utils/medications';
+import { getSession, isLoggedInAs } from '../utils/accounts';
+import { apiFetch, errorMessage, SERVER_DOWN_MESSAGE } from '../utils/api';
+import { LOW_STOCK_THRESHOLD } from '../utils/medications';
 import { haversineKm } from '../utils/geo';
 import useGeolocation from '../utils/useGeolocation';
 import '../styles/user-dashboard.css';
@@ -20,52 +15,98 @@ function formatBranch(branch) {
 }
 
 export default function UserDashboardPage() {
-  const [searchParams] = useSearchParams();
   useEffect(() => { document.title = 'Patient Portal - Meditrac'; }, []);
+
+  // Only a logged-in patient may see this page (checked after the hooks below).
+  const authorized = isLoggedInAs('user');
   const session = getSession();
-  const name = searchParams.get('name') || (session && session.type === 'user' ? session.name : null);
-  const trackedKey = trackedKeyFor(session);
+  const name = authorized ? session.name : null;
   const userLoc = useGeolocation();
 
   const [inputValue, setInputValue] = useState('');
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState('');
-  // Bumping this forces medications/tracked-ids to be re-read from
-  // localStorage after a track/untrack action, same as the vanilla
-  // re-render-after-write pattern.
-  const [refreshTick, setRefreshTick] = useState(0);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshTick is a deliberate cache-buster, not a real dependency
-  const medications = useMemo(() => loadAllMedications(), [refreshTick]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- same as above
-  const trackedIds = useMemo(() => loadTrackedIds(trackedKey), [trackedKey, refreshTick]);
+  // Every medication across all pharmacies, loaded once per page load. Each row
+  // carries its pharmacy's name and map pin, so searching, grouping and sorting by
+  // distance all happen in the browser without further requests.
+  const [rawMedications, setRawMedications] = useState([]);
+  const [trackedIds, setTrackedIds] = useState([]); // medication ids this patient tracks
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    if (!authorized) return;
+    let cancelled = false;
+
+    Promise.all([apiFetch('/api/medications'), apiFetch('/api/tracking', { auth: true })])
+      .then(([medsRes, trackRes]) => {
+        if (cancelled) return;
+        if (medsRes.ok) setRawMedications(medsRes.data);
+        else setLoadError(errorMessage(medsRes.data, 'Could not load medications.'));
+        if (trackRes.ok) setTrackedIds(trackRes.data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
+        setLoadError(SERVER_DOWN_MESSAGE);
+      });
+
+    return () => { cancelled = true; };
+  }, [authorized]);
+
+  // Annotate each medication with its pharmacy's coordinates (null if the pharmacy
+  // hasn't pinned its location yet) and the distance from the patient.
+  const medications = useMemo(
+    () =>
+      rawMedications.map((med) => {
+        const hasCoords = typeof med.latitude === 'number' && typeof med.longitude === 'number';
+        const _coords = hasCoords ? { lat: med.latitude, lng: med.longitude } : null;
+        const _distanceKm =
+          userLoc && _coords ? haversineKm(userLoc.lat, userLoc.lng, _coords.lat, _coords.lng) : null;
+        return { ...med, _coords, _distanceKm };
+      }),
+    [rawMedications, userLoc]
+  );
 
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 2200);
   }
 
-  function trackMedication(id) {
-    const ids = loadTrackedIds(trackedKey);
-    if (!ids.includes(id)) {
-      ids.push(id);
-      saveTrackedIds(trackedKey, ids);
+  async function trackMedication(id) {
+    try {
+      const { ok, data } = await apiFetch('/api/tracking', { method: 'POST', auth: true, body: { medication_id: id } });
+      if (!ok) {
+        showToast(errorMessage(data, 'Could not add that tracker.'));
+        return;
+      }
+      setTrackedIds((ids) => (ids.includes(id) ? ids : [id, ...ids]));
+      const med = rawMedications.find((m) => m.id === id);
+      showToast(med ? `${med.name} added to your trackers.` : 'Added to your trackers.');
+    } catch (err) {
+      console.error(err);
+      showToast(SERVER_DOWN_MESSAGE);
     }
-    const med = medications.find((m) => m.id === id);
-    showToast(med ? `${med.name} added to your trackers.` : 'Added to your trackers.');
-    setRefreshTick((t) => t + 1);
   }
 
-  function untrackMedication(id) {
-    const ids = loadTrackedIds(trackedKey).filter((x) => x !== id);
-    saveTrackedIds(trackedKey, ids);
-    setRefreshTick((t) => t + 1);
+  async function untrackMedication(id) {
+    try {
+      const { ok, data } = await apiFetch(`/api/tracking/${id}`, { method: 'DELETE', auth: true });
+      if (!ok) {
+        showToast(errorMessage(data, 'Could not remove that tracker.'));
+        return;
+      }
+      setTrackedIds((ids) => ids.filter((x) => x !== id));
+    } catch (err) {
+      console.error(err);
+      showToast(SERVER_DOWN_MESSAGE);
+    }
   }
 
   const trackedMeds = trackedIds.map((id) => medications.find((m) => m.id === id)).filter(Boolean);
 
-  const uniquePharmacies = new Set(trackedMeds.map((m) => m.pharmacy));
-  const networkPharmacies = new Set(medications.map((m) => m.pharmacy));
+  const uniquePharmacies = new Set(trackedMeds.map((m) => m.pharmacy_id));
+  const networkPharmacies = new Set(medications.map((m) => m.pharmacy_id));
 
   const isSearching = query.trim() !== '';
 
@@ -79,13 +120,6 @@ export default function UserDashboardPage() {
     const matches = medications.filter(
       (med) => (med.name || '').toLowerCase().includes(q) || (med.category || '').toLowerCase().includes(q)
     );
-
-    const pharmacyCoords = loadPharmacyCoords();
-    matches.forEach((med) => {
-      med._coords = pharmacyCoords.get(med.pharmacy) || null;
-      med._distanceKm =
-        userLoc && med._coords ? haversineKm(userLoc.lat, userLoc.lng, med._coords.lat, med._coords.lng) : null;
-    });
 
     const groupMap = new Map();
     matches.forEach((med) => {
@@ -110,7 +144,9 @@ export default function UserDashboardPage() {
     });
 
     return { groups, byPharmacy };
-  }, [isSearching, query, medications, userLoc]);
+  }, [isSearching, query, medications]);
+
+  if (!authorized) return <Navigate to="/register" replace />;
 
   return (
     <>
@@ -145,6 +181,12 @@ export default function UserDashboardPage() {
               <p>Pharmacies live on Meditrac</p>
             </div>
           </div>
+
+          {loadError && (
+            <div className="empty-state" style={{ marginBottom: '20px', color: '#e53e3e' }}>
+              <strong>{loadError}</strong>
+            </div>
+          )}
 
           <div className="search-hero-panel">
             <h3>Track Medicine Availability On-Demand</h3>
