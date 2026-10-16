@@ -1,71 +1,124 @@
-# MediTrac
+MediTrac Server API
+Overview
+The MediTrac API is a RESTful backend service built for managing medication inventories, tracking pharmacy stock, and handling patient search requests.
 
-MediTrac helps patients find medications at nearby pharmacies and lets pharmacies manage what they have in stock.
+Authentication
+Note: Auth is currently mocked for testing.
+Include the following header with all requests:
+Authorization: Bearer mock-token-123
 
-- **Patients** can search for a medication, see which registered pharmacies carry it, and view them on a map sorted by distance.
-- **Pharmacies** can register an account, pin their location on a map, and manage their medication inventory from a dashboard.
-- Accounts, sessions, and inventory data are stored in the browser's `localStorage` — no backend required to try it out.
+How to Run the API Locally
+Follow these exact steps from a clean terminal:
 
-This is the React + Vite version of the app, built with `react-router-dom` for routing and plain `leaflet` for the maps.
-
-## Getting Started
-
-Clone the repo, then install and run:
-
-```bash
+Clone the repository and navigate to the project root:
 git clone https://github.com/Antony101-tom/MEDITRAC-website-project.git
-cd meditrac-react
+cd IAP_Team_2__2.2--webapp
+
+Navigate to the server folder and install dependencies:
+cd server
 npm install
-npm run dev
-```
 
-Visit the printed local URL (typically `http://localhost:5173`), and allow location access when your browser prompts for it — this is what lets the app calculate distances to nearby pharmacies.
+Start the server:
+npm start
 
-### Try it out
+The API will start at http://localhost:5000.
 
-1. **Register a pharmacy account** and add a few medications to its stock, just like a real pharmacy would.
-2. **Create a separate user (patient) account.**
-3. Search for one of those medications from the user side — the pharmacy should show up with its distance.
-4. Go back to the pharmacy dashboard and update the stock (e.g. change quantity or mark something out of stock), then check the user dashboard again — it updates live since both sides read from the same `localStorage` data.
+Quickstart (Copy-Paste Test)
+Run this single command in your terminal to verify the API is running:
 
-To produce a production build:
+curl -X GET http://localhost:5000/api/medications -H "Authorization: Bearer mock-token-123"
 
-```bash
-npm run build
-npm run preview   # serve the built dist/ folder locally to sanity check it
-```
+Major Endpoints Reference
+### 1. GET /api/medications
+Retrieve all medications.
 
-## Project Structure
+* **Request:**
+curl -X GET http://localhost:5000/api/medications
 
-```
-meditrac-react/
-├── index.html
-├── public/
-│   └── logos/
-├── src/
-│   ├── main.jsx
-│   ├── App.jsx
-│   ├── index.css
-│   ├── pages/
-│   │   ├── HomePage.jsx
-│   │   ├── RegisterPage.jsx
-│   │   ├── UserDashboardPage.jsx
-│   │   └── PharmacyDashboardPage.jsx
-│   ├── components/
-│   │   ├── Navbar.jsx
-│   │   ├── PharmacyLocationPicker.jsx
-│   │   ├── ResultsMap.jsx
-│   │   └── AddMedicationModal.jsx
-│   ├── utils/
-│   │   ├── accounts.js
-│   │   ├── medications.js
-│   │   ├── geo.js
-│   │   └── useGeolocation.js
-│   └── styles/
-```
+* **Success Response (200 OK):**
+[
+{
+"id": "cd72c942-73cd-4723-8b7a-d60642148e26",
+"pharmacy_id": "5bf2b70b-17b6-4f55-8720-2c393d945e4a",
+"name": "Paracetamol 500 mg",
+"form": "Tablets 10 x 10 pack",
+"category": "Pain relief",
+"quantity": 20,
+"unit": "Boxes",
+"price": 500,
+"branch": "Hurlinghum"
+}
+]
 
-## Notes
 
-- Data is per-browser (stored in `localStorage`), so a pharmacy's inventory won't show up for a patient on a different browser or device.
-- Only pharmacies registered through this app have map coordinates. Older test accounts without a pin will show "Distance unknown" and sort after pharmacies that do have one.
+### 2. POST /api/medications
+Create a new medication entry.
 
+* **Request:**
+  curl -X POST http://localhost:5000/api/medications \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer mock-token-123" \
+    -d "{\"name\": \"Amoxicillin 500mg\", \"form\": \"Capsule\", \"category\": \"Antibiotics\", \"quantity\": 50, \"unit\": \"Boxes\", \"price\": 350, \"branch\": \"Kilimani Branch\"}"
+
+* **Success Response (201 Created):**
+  {
+    "id": "e8a91b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c",
+    "name": "Amoxicillin 500mg",
+    "form": "Capsule",
+    "category": "Antibiotics",
+    "quantity": 50,
+    "unit": "Boxes",
+    "price": 350,
+    "branch": "Kilimani Branch"
+  }
+
+### 3. GET /api/medications/:id
+Retrieve a single medication by ID.
+
+* **Request:**
+  curl -X GET http://localhost:5000/api/medications/cd72c942-73cd-4723-8b7a-d60642148e26
+
+* **Success Response (200 OK):**
+  {
+    "id": "cd72c942-73cd-4723-8b7a-d60642148e26",
+    "pharmacy_id": "5bf2b70b-17b6-4f55-8720-2c393d945e4a",
+    "name": "Paracetamol 500 mg",
+    "form": "Tablets 10 x 10 pack",
+    "category": "Pain relief",
+    "quantity": 20,
+    "unit": "Boxes",
+    "price": 500,
+    "branch": "Hurlinghum"
+  }
+
+### 4. DELETE /api/medications/:id
+Delete a medication by ID.
+
+* **Request:**
+  curl -X DELETE http://localhost:5000/api/medications/cd72c942-73cd-4723-8b7a-d60642148e26 \
+    -H "Authorization: Bearer mock-token-123"
+
+* **Success Response (200 OK / 204 No Content):**
+  {
+    "message": "Medication deleted successfully"
+  }
+
+  ### Error Response Reference
+* **Not Found (404 Not Found):**
+GET /api/medications/9999
+{
+"error": "Medication not found"
+}
+Returned when seraching for or modifying a medication ID that doesnt exist
+
+* **Bad Request(400 Bad Request):**
+Returned when creating a medication (POST /api/medications) with missing required fields:
+{
+"error": "Missing required field: name"
+}
+
+* **Unauthorised (401 Unauthorized):**
+Returned when attempting protected requests without a valid bearer token header:
+{
+"error": "Unauthorized access. Missing or invalid Authorization token."
+}
