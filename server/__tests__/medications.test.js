@@ -170,13 +170,14 @@ describe('PATCH /api/medications/:id/stock', () => {
     const res = await request(app).patch(`/api/medications/${created.body.id}/stock`).send({});
     expect(res.status).toBe(400);
     expect(res.body.message).toBe('quantity is required');
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 
   it('rejects a string quantity', async () => {
     const created = await createMed();
     const res = await request(app).patch(`/api/medications/${created.body.id}/stock`).send({ quantity: 'ten' });
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe('quantity must be an integer');
+    expect(res.body.error).toBe('quantity must be an integer');
   });
 
   it('returns 404 for an id that does not exist', async () => {
