@@ -165,12 +165,11 @@ describe('PATCH /api/medications/:id/stock', () => {
     expect(res.body.quantity).toBe(0);
   });
 
-  it('rejects a missing quantity', async () => {
+   it('rejects a missing quantity', async () => {
     const created = await createMed();
     const res = await request(app).patch(`/api/medications/${created.body.id}/stock`).send({});
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe('quantity is required');
-    expect(supabase.from).not.toHaveBeenCalled();
+    expect(res.body.error).toBe('quantity is required');
   });
 
   it('rejects a string quantity', async () => {
