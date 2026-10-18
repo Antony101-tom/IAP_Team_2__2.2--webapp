@@ -4,6 +4,13 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
+
+// The server normally sits behind a proxy (ngrok, Render, Railway...) that passes each visitor's real address
+// in the X-Forwarded-For header. Trusting ONE proxy hop makes the rate limits count per visitor instead of
+// lumping everyone together as "the proxy". Set TRUST_PROXY=0 if the server is reachable directly with no proxy
+// in front, so nobody can fake that header.
+const trustProxyHops = Number(process.env.TRUST_PROXY ?? '1');
+app.set('trust proxy', Number.isInteger(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : false);
 const PORT = process.env.PORT || 5000;
 
 // Who may call the API from a browser (CORS). This only matters for browser apps:

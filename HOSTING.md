@@ -71,6 +71,8 @@ Then start the website (`npm install` and `npm run dev` in the main project fold
 
 ## 5. Put the API online (example: Render)
 
+A complete, step-by-step Render guide (API and website) is in `RENDER.md`. A summary:
+
 1. Push the project to GitHub. `server/.env` is ignored by git, so your secrets stay out of it. Never commit it.
 2. On render.com choose **New > Web Service** and connect the repository.
 3. Settings: **Root Directory** `server`, **Build Command** `npm install`, **Start Command** `npm start`.
@@ -84,7 +86,7 @@ Then start the website (`npm install` and `npm run dev` in the main project fold
 | `REQUIRE_LOGIN_FOR_WRITES` | `true` (see "Before real people use it") |
 | `PARTNER_ORIGINS` | `*` to let any website use the partner endpoints, or a comma-separated list of allowed sites |
 
-The host sets `PORT` itself. Railway and Fly.io use the same idea: root directory `server`, `npm install`, `npm start`, same variables.
+The host sets `PORT` itself, and `TRUST_PROXY` defaults to `1`, which is right because hosts like Render sit behind a proxy (it makes the sign-up and login limits count each visitor separately). Railway and Fly.io use the same idea: root directory `server`, `npm install`, `npm start`, same variables.
 Open `https://your-api-address/api/medications`: you should see a list of medications.
 
 Free plans on some hosts put the API to sleep when nobody has used it for a while, so the first request afterwards can take

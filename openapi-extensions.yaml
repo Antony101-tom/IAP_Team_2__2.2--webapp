@@ -12,7 +12,10 @@ info:
     \ latitude and longitude (the pharmacy's map pin, null until pinned) on each record.\n  * A medication's optional\
     \ text fields (form, category, unit, branch) are left out when empty, never null.\n  * A pharmacy may add an\
     \ optional sku to POST/PUT /medications. Duplicate sku for one pharmacy returns 409.\n  * Quantity and price\
-    \ below 0, over-long text, or a pharmacy_id that matches no pharmacy return 400 with the contract's ValidationError.\n\
+    \ below 0, over-long text, or a quantity/price too large for the database return 400 with the contract's ValidationError.\n\
+    \  * With a login token, writing for someone else's (existing) pharmacy_id returns 403. A pharmacy_id that does\
+    \ not exist is the contract's 404 \"Pharmacy not found\", with or without a token.\n  * A by-pharmacy search\
+    \ with a name in different letter-case finds nothing (exact, case-sensitive match, as the contract says).\n\
     \  * Rate limits (429), request bodies over 1 MB (413) and malformed JSON (400) return JSON errors.\n"
 servers:
 - url: http://localhost:5000/api
@@ -546,7 +549,12 @@ components:
         id:
           type: string
           format: uuid
-          example: d4e5f6a7-1111-2222-3333-444455556666
+          example: 9db9929c-3999-484b-8cf9-936ea3d4e349
+        pharmacy_id:
+          type: string
+          format: uuid
+          description: The id of the pharmacy (a row in the profiles table) that stocks this medication.
+          example: 719b4e69-ce9c-4dab-9eae-722dc0f371b5
         name:
           type: string
           example: Paracetamol 500mg
@@ -564,15 +572,14 @@ components:
           example: box
         price:
           type: number
-          format: float
-          example: 50.0
+          example: 50
         branch:
           type: string
           example: Kilimani Branch
-        pharmacy_id:
+        created_at:
           type: string
-          format: uuid
-          example: b3f1c2a0-1234-4a5b-9c3d-abcdef123456
+          format: date-time
+          example: '2026-10-12T11:29:11.492955+00:00'
     MedicationInput:
       type: object
       required:
@@ -598,15 +605,15 @@ components:
           example: box
         price:
           type: number
-          format: float
-          example: 50.0
+          example: 50
         branch:
           type: string
           example: Kilimani Branch
         pharmacy_id:
           type: string
           format: uuid
-          example: b3f1c2a0-1234-4a5b-9c3d-abcdef123456
+          description: Must be the id of an existing pharmacy, otherwise the API returns 404 "Pharmacy not found".
+          example: 719b4e69-ce9c-4dab-9eae-722dc0f371b5
     Error:
       type: object
       required:

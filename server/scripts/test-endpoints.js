@@ -24,11 +24,14 @@ const API = (process.env.API_URL || 'http://localhost:5000/api').replace(/\/$/, 
 const TOKEN = process.env.TOKEN || '';
 const CONTRACT_FILE = process.env.CONTRACT || path.join(__dirname, '../../openapi.yaml');
 const UNKNOWN_ID = '00000000-0000-4000-8000-000000000000'; // a well-formed id nothing uses
+const UNKNOWN_PHARMACY_ID = '00000000-0000-4000-8000-0000000000aa'; // a well-formed pharmacy id nothing uses
 
 const contract = YAML.parse(fs.readFileSync(CONTRACT_FILE, 'utf8'));
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
 ajv.addSchema(contract, 'contract');
+// A response in the contract may be a reference like '#/components/responses/ServerError'
+const resolveResponse = (raw) => (raw && raw.$ref ? raw.$ref.replace(/^#\//, '').split('/').reduce((node, key) => node[key], contract) : raw);
 const compile = (schema) =>
   ajv.compile(JSON.parse(JSON.stringify(schema).replace(/"#\/components\/schemas\//g, '"contract#/components/schemas/')));
 
@@ -67,7 +70,7 @@ async function step({ title, method, template, url, body, expect: expectedStatus
   }
 
   const problems = [];
-  const documented = contract.paths[template][method.toLowerCase()].responses[String(res.status)];
+  const documented = resolveResponse(contract.paths[template][method.toLowerCase()].responses[String(res.status)]);
   if (res.status !== expectedStatus) problems.push(`expected ${expectedStatus}, got ${res.status}${res.data?.error ? ` (${res.data.error})` : ''}`);
   if (!documented) {
     problems.push(`status ${res.status} is not one the contract documents for this call`);
@@ -138,6 +141,9 @@ async function step({ title, method, template, url, body, expect: expectedStatus
     extra: (d) => (['name', 'quantity', 'price', 'pharmacy_id'].every((f) => d.errors.some((e) => e.includes(f))) ? null : 'errors should name every missing field') });
   await step({ title: 'rejected wrong types', method: 'POST', template: '/medications', url: '/medications', body: { ...input, quantity: 'ten', price: '5' }, expect: 400 });
 
+  await step({ title: 'no pharmacy with that pharmacy_id', method: 'POST', template: '/medications', url: '/medications', body: { ...input, pharmacy_id: UNKNOWN_PHARMACY_ID }, expect: 404,
+    extra: (d) => (d.error === 'Pharmacy not found' ? null : `expected "Pharmacy not found", got "${d.error}"`) });
+
   if (!id) {
     console.log('\nStopping: the medication could not be created, so the remaining steps cannot run.\n');
     process.exit(1);
@@ -145,13 +151,21 @@ async function step({ title, method, template, url, body, expect: expectedStatus
 
   await step({ title: `found the test medication under "${pharmacyName}"`, method: 'GET', template: '/medications/by-pharmacy', url: `/medications/by-pharmacy?name=${encodeURIComponent(pharmacyName)}`, expect: 200,
     extra: (d) => (d.some((m) => m.id === id) ? null : 'the new medication is not in this pharmacy\'s list') });
+  // The contract says the name match is exact and case-sensitive: the same name in other letter-case must not match
+  const swapped = pharmacyName.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+  if (swapped !== pharmacyName) {
+    await step({ title: 'the name match is case-sensitive, so different letter-case finds nothing', method: 'GET', template: '/medications/by-pharmacy', url: `/medications/by-pharmacy?name=${encodeURIComponent(swapped)}`, expect: 404 });
+  }
   await step({ title: 'asked for a name', method: 'GET', template: '/medications/by-pharmacy', url: '/medications/by-pharmacy', expect: 400 });
   await step({ title: 'no pharmacy with that name', method: 'GET', template: '/medications/by-pharmacy', url: '/medications/by-pharmacy?name=No%20Such%20Pharmacy%20Anywhere', expect: 404 });
 
   await step({ title: 'replaced the record', method: 'PUT', template: '/medications/{id}', url: `/medications/${id}`, body: { ...input, name: 'ENDPOINT TEST v2', price: 75 }, expect: 200,
     extra: (d) => (d.id !== id || d.name !== 'ENDPOINT TEST v2' || d.price !== 75 ? 'the update was not applied' : null) });
   await step({ title: 'rejected missing fields', method: 'PUT', template: '/medications/{id}', url: `/medications/${id}`, body: { name: 'only a name' }, expect: 400 });
-  await step({ title: 'no medication with that id', method: 'PUT', template: '/medications/{id}', url: `/medications/${UNKNOWN_ID}`, body: input, expect: 404 });
+  await step({ title: 'no medication with that id', method: 'PUT', template: '/medications/{id}', url: `/medications/${UNKNOWN_ID}`, body: input, expect: 404,
+    extra: (d) => (d.error === 'Medication not found' ? null : `expected "Medication not found", got "${d.error}"`) });
+  await step({ title: 'no pharmacy with that pharmacy_id', method: 'PUT', template: '/medications/{id}', url: `/medications/${id}`, body: { ...input, pharmacy_id: UNKNOWN_PHARMACY_ID }, expect: 404,
+    extra: (d) => (d.error === 'Pharmacy not found' ? null : `expected "Pharmacy not found", got "${d.error}"`) });
 
   await step({ title: 'stock changed to 85', method: 'PATCH', template: '/medications/{id}/stock', url: `/medications/${id}/stock`, body: { quantity: 85 }, expect: 200,
     extra: (d) => (d.quantity === 85 ? null : `quantity is ${d.quantity}, expected 85`) });
@@ -173,11 +187,20 @@ async function step({ title, method, template, url, body, expect: expectedStatus
   for (const [p, ops] of Object.entries(contract.paths)) {
     for (const [m, op] of Object.entries(ops)) for (const s of Object.keys(op.responses)) documented.push(`${m.toUpperCase()} ${p} ${s}`);
   }
-  const notSeen = documented.filter((d) => !covered.has(d));
+  // A 500 (unexpected server or database failure) cannot be provoked on demand, so it is not required here.
+  // The automated tests (npm test) check that every 500 has the contract's { error } shape.
+  const serverFailures = documented.filter((d) => /\s5\d\d$/.test(d));
+  const notSeen = documented.filter((d) => !serverFailures.includes(d) && !covered.has(d));
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed} of ${results.length} checks passed.`);
-  console.log(`${documented.length - notSeen.length} of ${documented.length} responses documented in the contract were produced by the server and matched it.`);
+  const testable = documented.length - serverFailures.length;
+  console.log(`${testable - notSeen.length} of ${testable} responses documented in the contract were produced by the server and matched it (${serverFailures.length} server-failure responses can't be provoked live; npm test covers them).`);
   if (notSeen.length) console.log(`Not confirmed: ${notSeen.join(', ')}`);
+  if (failed || notSeen.length) {
+    console.log('\nTip: if lines like "expected 404, got 400" appear, the server you are testing is probably running OLDER code than this folder.');
+    console.log('  - Render: open the service > Deploys, check the commit it built, push your latest commit and wait for "Your service is live".');
+    console.log('  - Your computer: stop the server (Ctrl+C) and start it again with npm start from THIS folder.');
+  }
   console.log(failed || notSeen.length ? '\nRESULT: NOT READY. Fix the FAIL lines above.\n' : '\nRESULT: READY. Another application can use these endpoints as the contract describes.\n');
   process.exit(failed || notSeen.length ? 1 : 0);
 })();

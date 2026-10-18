@@ -9,8 +9,8 @@ const { parseGeoQuery, parseLimit, DISTANCE_SQL } = require('../geo');
 const router = express.Router();
 
 // The fields every endpoint returns for a medication (see openapi.yaml → Medication)
-const MED_COLUMNS = 'id, name, form, category, quantity, unit, price, branch, sku, pharmacy_id';
-const PUBLIC_MED_COLUMNS = 'id, name, form, category, quantity, unit, price, branch, pharmacy_id';
+const MED_COLUMNS = 'id, name, form, category, quantity, unit, price, branch, sku, pharmacy_id, created_at';
+const PUBLIC_MED_COLUMNS = 'id, name, form, category, quantity, unit, price, branch, pharmacy_id, created_at';
 
 async function findMedication(id) {
   const [rows] = await pool.query(`SELECT ${MED_COLUMNS} FROM medications WHERE id = ?`, [id]);
@@ -24,7 +24,7 @@ async function findMedication(id) {
 router.get('/', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT m.id, m.name, m.form, m.category, m.quantity, m.unit, m.price, m.branch, m.pharmacy_id,
+      `SELECT m.id, m.name, m.form, m.category, m.quantity, m.unit, m.price, m.branch, m.pharmacy_id, m.created_at,
               p.name AS pharmacy, p.latitude, p.longitude
        FROM medications m
        JOIN pharmacies p ON p.id = m.pharmacy_id
@@ -108,7 +108,7 @@ router.get('/by-pharmacy', async (req, res) => {
 
   try {
     // Names aren't unique across pharmacies, so match every pharmacy with this name
-    const [pharmacies] = await pool.query('SELECT id FROM pharmacies WHERE LOWER(name) = LOWER(?)', [name]);
+    const [pharmacies] = await pool.query('SELECT id FROM pharmacies WHERE name = ?', [name]);
     if (pharmacies.length === 0) {
       return res.status(404).json({ error: 'Pharmacy not found' });
     }
@@ -188,24 +188,31 @@ function validateMedicationBody(body, { partial = false } = {}) {
   return errors;
 }
 
-// A write that names a pharmacy_id that doesn't exist is a validation error (400), per the contract
+// A write that names a pharmacy_id that doesn't exist is a 404 "Pharmacy not found", per the contract
 function isUnknownPharmacy(err) {
   return isForeignKeyViolation(err);
 }
-const UNKNOWN_PHARMACY = { message: 'Validation failed', errors: ['pharmacy_id does not match an existing pharmacy'] };
+const PHARMACY_NOT_FOUND = { error: 'Pharmacy not found' };
 
 // The pharmacy's own product code, trimmed; null when absent or blank
 function skuOf(body) {
   return typeof body.sku === 'string' && body.sku.trim() ? body.sku.trim() : null;
 }
 
-// Used by write routes: if a pharmacy is logged in, the body's pharmacy_id must be that pharmacy
-function ownsBody(req, res) {
-  if (req.pharmacyId !== undefined && req.body.pharmacy_id !== req.pharmacyId) {
-    res.status(403).json({ error: "You can only manage your own pharmacy's medications." });
-    return false;
+// Used by write routes: if a pharmacy is logged in, the body's pharmacy_id must be that pharmacy.
+// Writing for a pharmacy_id that does not exist at all is the contract's 404 "Pharmacy not found";
+// writing for someone else's real pharmacy is refused with a 403 (an extension: the contract has no login).
+async function ownsBody(req, res) {
+  if (req.pharmacyId === undefined || req.body.pharmacy_id === req.pharmacyId) return true;
+  try {
+    const [rows] = await pool.query('SELECT 1 AS found FROM pharmacies WHERE id = ?', [req.body.pharmacy_id]);
+    if (rows.length === 0) res.status(404).json(PHARMACY_NOT_FOUND);
+    else res.status(403).json({ error: "You can only manage your own pharmacy's medications." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to check the pharmacy' });
   }
-  return true;
+  return false;
 }
 
 const MAX_BULK = 500;
@@ -301,7 +308,7 @@ router.post('/', optionalPharmacy, async (req, res) => {
   if (errors.length > 0) {
     return res.status(400).json({ message: 'Validation failed', errors });
   }
-  if (!ownsBody(req, res)) return;
+  if (!(await ownsBody(req, res))) return;
 
   const { name, form, category, quantity, unit, price, branch, pharmacy_id } = req.body;
   const id = randomUUID();
@@ -317,7 +324,7 @@ router.post('/', optionalPharmacy, async (req, res) => {
     if (isUniqueViolation(err)) {
       return res.status(409).json({ error: 'You already have a medication with that sku.' });
     }
-    if (isUnknownPharmacy(err)) return res.status(400).json(UNKNOWN_PHARMACY);
+    if (isUnknownPharmacy(err)) return res.status(404).json(PHARMACY_NOT_FOUND);
     console.error(err);
     res.status(500).json({ error: 'Failed to create medication' });
   }
@@ -331,7 +338,7 @@ router.put('/:id', optionalPharmacy, async (req, res) => {
   if (errors.length > 0) {
     return res.status(400).json({ message: 'Validation failed', errors });
   }
-  if (!ownsBody(req, res)) return;
+  if (!(await ownsBody(req, res))) return;
 
   const { name, form, category, quantity, unit, price, branch, pharmacy_id } = req.body;
 
@@ -355,7 +362,7 @@ router.put('/:id', optionalPharmacy, async (req, res) => {
     if (isUniqueViolation(err)) {
       return res.status(409).json({ error: 'You already have a medication with that sku.' });
     }
-    if (isUnknownPharmacy(err)) return res.status(400).json(UNKNOWN_PHARMACY);
+    if (isUnknownPharmacy(err)) return res.status(404).json(PHARMACY_NOT_FOUND);
     console.error(err);
     res.status(500).json({ error: 'Failed to update medication' });
   }

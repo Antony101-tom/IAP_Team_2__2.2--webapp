@@ -142,6 +142,6 @@ meditrac-react/
 - Only pharmacies that have pinned their location on the map have coordinates. Others show "Distance unknown" and sort after pharmacies that do.
 - Other apps can read pharmacy data and build their own map: see `PUBLIC_API.md` and the working example in `examples/map-demo.html`.
 - Other apps can also create a pharmacy and upload and update their own stock: see `PARTNER_API.md` and `examples/partner-sync.js`.
-- To host the app online (Supabase for the database, plus a host for the API and the website): see `HOSTING.md`. To let teammates use the shared data without database access: see `TEAM_SETUP.md`. To test the endpoints: see `TESTING.md`.
+- To host the app online (Supabase for the database, plus a host for the API and the website): see `HOSTING.md`, or `RENDER.md` for step-by-step Render instructions. To let teammates use the shared data without database access: see `TEAM_SETUP.md`. To test the endpoints: see `TESTING.md`.
 - `openapi.yaml` is the agreed API contract, and the server follows it (checked by `server/__tests__/contract.test.js`). Everything added beyond it is described in `openapi-extensions.yaml`, and the differences are listed in `CONTRACT_DEVIATIONS.md`.
 - The contract's write endpoints take no login token, so by default they work without one. Set `REQUIRE_LOGIN_FOR_WRITES=true` in `server/.env` before the server is reachable by people you don't trust.

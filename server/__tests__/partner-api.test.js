@@ -389,6 +389,27 @@ describe('settings read from the environment', () => {
     expect(pub.headers['access-control-allow-origin']).toBe('*');
   });
 
+  it('behind a proxy (ngrok, Render...) each visitor has their own rate limit, using X-Forwarded-For', async () => {
+    const proxied = freshApp({ REGISTER_LIMIT_PER_HOUR: '1' });
+    pool.query.mockResolvedValue([{ affectedRows: 1 }]);
+    const signup = (n, ip) =>
+      request(proxied).post('/api/auth/register').set('X-Forwarded-For', ip).send({ accountType: 'user', name: 'N', email: `p${n}@x.com`, password: 'secret1' });
+
+    expect((await signup(1, '203.0.113.1')).status).toBe(201);
+    expect((await signup(2, '203.0.113.2')).status).toBe(201); // a different visitor is not blocked
+    expect((await signup(3, '203.0.113.1')).status).toBe(429); // the first visitor is
+  });
+
+  it('TRUST_PROXY=0 ignores X-Forwarded-For, so it cannot be used to dodge the limit when there is no proxy', async () => {
+    const direct = freshApp({ REGISTER_LIMIT_PER_HOUR: '1', TRUST_PROXY: '0' });
+    pool.query.mockResolvedValue([{ affectedRows: 1 }]);
+    const signup = (n, ip) =>
+      request(direct).post('/api/auth/register').set('X-Forwarded-For', ip).send({ accountType: 'user', name: 'N', email: `d${n}@x.com`, password: 'secret1' });
+
+    expect((await signup(1, '203.0.113.1')).status).toBe(201);
+    expect((await signup(2, '203.0.113.2')).status).toBe(429); // same real address: still limited
+  });
+
   it('REGISTER_LIMIT_PER_HOUR caps successful sign-ups only; failed attempts are not counted', async () => {
     const limited = freshApp({ REGISTER_LIMIT_PER_HOUR: '2' });
     const signup = (n) => request(limited).post('/api/auth/register').send({ accountType: 'user', name: 'N', email: `u${n}@x.com`, password: 'secret1' });

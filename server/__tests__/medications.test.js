@@ -180,13 +180,14 @@ describe('POST /api/medications', () => {
   });
 
   it("refuses to add stock to a different pharmacy's shelf", async () => {
+    pool.query.mockResolvedValueOnce(ok([{ found: 1 }])); // that pharmacy exists, it just is not yours
     const res = await request(app)
       .post('/api/medications')
       .set('Authorization', AUTH)
       .send({ ...validBody, pharmacy_id: 'someone-else' });
 
     expect(res.status).toBe(403);
-    expect(pool.query).not.toHaveBeenCalled();
+    expect(pool.query).toHaveBeenCalledTimes(1); // only the lookup, never an insert
   });
 
   it('rejects an empty body and lists every missing required field', async () => {

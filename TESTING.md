@@ -31,7 +31,10 @@ it again. A good run ends with:
 RESULT: READY. Another application can use these endpoints as the contract describes.
 ```
 
-Anything else ends with `NOT READY` and a line saying exactly what was wrong. The exit code is non-zero, so it can also run in automation.
+Anything else ends with `NOT READY` and a line saying exactly what was wrong. The commonest cause is testing a server that is running
+OLDER code than your folder, for example a Render service that has not redeployed yet: lines such as `expected 404, got 400` on the
+unknown-pharmacy checks and on the different-letter-case by-pharmacy check mean exactly that. Push your latest commit and wait for Render
+to say "Your service is live" (or restart `npm start` from this folder), then run the test again. The exit code is non-zero, so it can also run in automation.
 
 Settings (environment variables), for example in PowerShell: `$env:API_URL="https://your-api.example.com/api"; npm run test:live`
 
@@ -71,6 +74,41 @@ it afterwards in the Supabase SQL Editor with `delete from pharmacies where emai
 
 The test also creates and deletes one medication called "ENDPOINT TEST". If the server has `REQUIRE_LOGIN_FOR_WRITES=true`, set
 `TOKEN` and `PHARMACY_ID` as described above.
+
+## POST, PUT and DELETE on a hosted server (login required)
+
+The contract (`openapi.yaml`) takes no login, and by default the server follows it. A hosted server should have
+`REQUIRE_LOGIN_FOR_WRITES=true` (see `RENDER.md`), and then `POST`, `PUT`, `PATCH` and `DELETE` on medications answer
+`401 { "error": "Please log in as a pharmacy first." }` unless you send a pharmacy's login token. Reading (`GET`) never needs one.
+That 401 is the server doing its job, not the endpoint being broken. To test with a login:
+
+```powershell
+$api = "https://meditrac-api.onrender.com/api"
+$login = Invoke-RestMethod -Method Post -Uri "$api/auth/login" -ContentType 'application/json' -Body '{"accountType":"pharmacy","email":"YOUR-PHARMACY-EMAIL","password":"YOUR-PASSWORD"}'
+$h = @{ Authorization = "Bearer $($login.token)" }
+$pharmacyId = $login.account.id
+
+# POST: the pharmacy_id must be YOUR pharmacy's id (from the login)
+$body = @{ name='Test drug'; quantity=10; price=25.5; pharmacy_id=$pharmacyId } | ConvertTo-Json
+$m = Invoke-RestMethod -Method Post -Uri "$api/medications" -Headers $h -ContentType 'application/json' -Body $body
+# PUT replaces the whole record
+$put = @{ name='Test drug v2'; quantity=7; price=30; pharmacy_id=$pharmacyId } | ConvertTo-Json
+Invoke-RestMethod -Method Put -Uri "$api/medications/$($m.id)" -Headers $h -ContentType 'application/json' -Body $put
+# DELETE
+Invoke-RestMethod -Method Delete -Uri "$api/medications/$($m.id)" -Headers $h
+```
+
+A free Render API may need up to a minute to wake before the first call answers. The login token lasts 7 days. A pharmacy can only
+change its own medications: someone else's id answers `404 Medication not found`, and a different `pharmacy_id` in the body answers `403`
+(or `404 Pharmacy not found` if that pharmacy does not exist).
+
+To run the whole check against the hosted API with that login:
+
+```powershell
+cd server
+$env:API_URL = $api; $env:TOKEN = $login.token; $env:PHARMACY_ID = $login.account.id
+npm run test:live
+```
 
 ## Can't reach the database?
 

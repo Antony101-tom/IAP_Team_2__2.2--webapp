@@ -143,7 +143,7 @@ branch**. Your **email, password and `sku` values are never public.**
 | `400` | Invalid input. `errors` (or `error`) says exactly what to fix |
 | `401` | No token where one is needed, or it is invalid or expired. Log in again |
 | `403` | The token is for a patient account, or `pharmacy_id` is not yours |
-| `404` | Not found, or it belongs to another pharmacy |
+| `404` | `Pharmacy not found` (the `pharmacy_id` matches no pharmacy), `Medication not found` (no such id, or it belongs to another pharmacy) |
 | `409` | Email or `sku` already in use |
 | `413` | Request body over 1 MB |
 | `429` | Too many requests. Wait and retry |

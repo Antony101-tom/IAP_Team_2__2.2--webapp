@@ -11,7 +11,7 @@ Teammate's computer                  Hosted online                    Supabase
 
 ## For whoever owns the database (once)
 
-1. **Put the API online.** Follow steps 1 to 5 of [HOSTING.md](HOSTING.md). You end up with an address like `https://meditrac-api.onrender.com`.
+1. **Put the API online.** Follow [RENDER.md](RENDER.md) (or steps 1 to 5 of [HOSTING.md](HOSTING.md)). You end up with an address like `https://meditrac-api.onrender.com`.
 2. **Set these on the host** (the API's environment variables):
 
    | Name | Value |
@@ -26,7 +26,9 @@ Teammate's computer                  Hosted online                    Supabase
 Until the API is online you can share your own computer for a short time (it must stay switched on and the server running):
 `ngrok http 5000` gives a temporary public address (copy the real `https://....ngrok-free.app` address from the ngrok screen, never
 an example one), or on the same Wi-Fi use `http://YOUR-IP:5000` and allow Node through the Windows Firewall. A free ngrok address
-changes every time ngrok restarts, so teammates must update `.env.local` and restart their site each time. The website already
+normally changes every time ngrok restarts, but every free account also has ONE fixed address (ngrok dashboard > Domains, it ends in
+`.ngrok-free.dev` or `.ngrok-free.app`). Start ngrok with it and teammates only set `.env.local` once:
+`ngrok http --url=YOUR-FIXED-DOMAIN 5000` (older ngrok versions use `--domain=` instead of `--url=`). The website already
 sends the header ngrok needs to skip its warning page, so use the latest code.
 
 ## For each teammate

@@ -49,8 +49,8 @@ contract operation behaves.
   They used to be `{ "message": "..." }`.
 - A medication's optional text fields (`form`, `category`, `unit`, `branch`) are left out when empty. The
   contract says they are strings, so they are no longer sent as `null`.
-- `POST` / `PUT /medications` with a `pharmacy_id` that matches no pharmacy return `400` with the contract's
-  `ValidationError` instead of a `500`.
+- `POST` / `PUT /medications` with a `pharmacy_id` that matches no pharmacy return `404` `{ "error": "Pharmacy not found" }`
+  (an id in the URL that matches no medication is `404` `{ "error": "Medication not found" }`). They used to be `500`, then `400`.
 - The write operations take **no login token**, as in the contract. They work without one.
 
 **Additive differences (a client following only the contract can ignore all of them):**
@@ -88,9 +88,25 @@ See `HOSTING.md`.
 **Things that behave differently from the earlier MySQL version of this project:**
 - Pharmacies are their own `pharmacies` table (the earlier `profiles` idea no longer applies), which also fixes
   `GET /medications/by-pharmacy` reading from a table that did not match the schema.
-- Names and categories are searched case-insensitively, and `%` / `_` in a search are matched literally.
+- The extra search endpoint (`/medications/search`) matches names and categories case-insensitively, and `%` / `_` are matched
+  literally. `/medications/by-pharmacy` is exact and case-sensitive, as the contract says.
 - Row Level Security is switched on for every table with no policies. Supabase publishes tables through a public
   web API; this keeps password hashes out of it. The Express server connects as the database owner and is not affected.
 - A price above 99999999.99 or a quantity above 2147483647 returns `400` (`ValidationError`), because the columns
   cannot hold more.
+
+## 2026-10-18 — Updated contract (500 responses, 404 for an unknown pharmacy, exact names, created_at)
+
+**What changed in `openapi.yaml`** (made by the team) and how the server follows it:
+- Every operation documents a `500` `{ "error": "..." }`. The server already answers failures that way; the automated tests now check
+  every `500` (internals are not leaked in the message).
+- `POST /medications` and `PUT /medications/{id}` answer `404` `Pharmacy not found` for an unknown `pharmacy_id`. This applies with or
+  without a login token.
+- `GET /medications/by-pharmacy` matches the name exactly and case-sensitively. (It was case-insensitive before.)
+- `Medication` includes `created_at` (an ISO date-time string). It is returned by every medication response.
+- `security: []`: the contract takes no login. The server still works that way by default; on a public server set
+  `REQUIRE_LOGIN_FOR_WRITES=true`, and then `POST` / `PUT` / `PATCH` / `DELETE` need a pharmacy token (`401` without one). See `TESTING.md`.
+
+`server/__tests__/contract.test.js` now checks all 21 documented responses, and `npm run test:live` checks the 15 that can be
+produced on a running server (the six `500`s cannot be provoked on demand).
 

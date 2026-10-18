@@ -33,13 +33,30 @@ export async function apiFetch(path, { method = 'GET', body, auth = false } = {}
     try {
       data = await response.json();
     } catch {
-      /* non-JSON response */
+      /* not JSON: handled below */
     }
   }
 
   if (auth && response.status === 401) {
     clearSession();
     window.location.assign('/register');
+  }
+
+  // The MediTrac API always answers with JSON (even for errors). Anything else (a web page, an empty reply)
+  // came from somewhere that is not the API: the website's own host because VITE_API_URL is missing or wrong,
+  // a hosting service's "waking up" page, or a tunnel's warning page. Say so, instead of a vague failure.
+  if (response.status !== 204 && data === null) {
+    const waking = [502, 503, 504].includes(response.status);
+    return {
+      ok: false,
+      status: response.status,
+      data: {
+        error: waking
+          ? `The server is starting up or temporarily unavailable (HTTP ${response.status}). Free hosting puts it to sleep when it is not used: wait a minute and try again.`
+          : `${API_BASE || window.location.origin} did not answer like the MediTrac API (HTTP ${response.status}). ` +
+            'If this website is hosted online, check that VITE_API_URL was set to the API address when the website was built.',
+      },
+    };
   }
 
   return { ok: response.ok, status: response.status, data };
@@ -53,4 +70,6 @@ export function errorMessage(data, fallback = 'Something went wrong. Please try 
   return data.error || data.message || fallback;
 }
 
-export const SERVER_DOWN_MESSAGE = 'Could not reach the server. Is the backend running on port 5000?';
+export const SERVER_DOWN_MESSAGE =
+  'Could not reach the server. If the API runs on your computer, check that it is running (npm start in the server folder). ' +
+  'If it is hosted online it may be asleep: wait a minute and try again, or check the API address (VITE_API_URL).';
