@@ -52,4 +52,4 @@ function requireApiKey() {
   };
 }
 
-module.exports = { requireApiKey, loadKeys, keyId };
+module.exports = { requireApiKey, loadKeys, keyId, isHealthCheck };

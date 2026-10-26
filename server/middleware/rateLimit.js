@@ -1,4 +1,5 @@
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const { isHealthCheck } = require('./apiKey');
 
 // Rate limiting per API key (Week 9, Part C).
 //
@@ -30,6 +31,9 @@ function perKeyRateLimit() {
     limit: () => perMinute(), // read on every request, so it can be changed without a restart
     standardHeaders: true, // RateLimit-* headers, and Retry-After on a 429
     legacyHeaders: false,
+    // The host's health check (Render pings GET / every few seconds) must never be limited: if it got a 429
+    // the host would think the server is down and restart it, which shows up as 502 for everyone.
+    skip: (req) => isHealthCheck(req),
     // requireApiKey runs first and sets req.apiKeyId; the address is only a safety net
     keyGenerator: (req) => req.apiKeyId || ipKeyGenerator(req.ip),
     handler: (req, res, _next, options) => {

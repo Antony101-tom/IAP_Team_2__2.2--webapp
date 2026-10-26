@@ -171,6 +171,14 @@ describe('the health check is the only open door', () => {
     expect(pre.headers['access-control-allow-headers'].toLowerCase()).toContain('x-api-key');
   });
 
+  it('the health check is never rate limited (a host pinging it must not get 429s, or it restarts the server)', async () => {
+    process.env.RATE_LIMIT_PER_MINUTE = '1';
+    for (let i = 0; i < 10; i++) {
+      expect((await rawRequest(app).get('/')).status).toBe(200);
+      expect((await rawRequest(app).head('/')).status).toBe(200);
+    }
+  });
+
   it('does not advertise the framework', async () => {
     const res = await rawRequest(app).get('/');
     expect(res.headers['x-powered-by']).toBeUndefined();
