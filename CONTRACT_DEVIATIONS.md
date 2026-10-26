@@ -71,8 +71,10 @@ Described in `openapi-extensions.yaml`, so they do not touch the contract:
 `PUT /pharmacies/me/location`, `GET` / `POST` / `DELETE /tracking`.
 Guides: `PUBLIC_API.md` (read-only, for other apps building a map) and `PARTNER_API.md` (create a pharmacy and
 manage its own stock). The public read endpoints are open to any website (CORS `*`) and the partner endpoints
-too by default (`PARTNER_ORIGINS`). Patient trackers are not. Only successful sign-ups are rate limited (20 per
-IP per hour); public reads are limited to 120 per minute per IP.
+too by default (`PARTNER_ORIGINS`). Patient trackers are not. Sign-ups are limited to 20 successful ones per IP per hour, and failed logins to 20 per IP per 15 minutes.
+Every endpoint also needs an API key (`X-API-Key`, one key per consumer; 401 without it) and is limited to
+100 requests per key per minute (429 with `Retry-After`). These were added in Week 9 and are declared in
+`openapi.yaml` (security scheme `ApiKeyAuth`, responses 401 and 429).
 
 
 ## 2026-10-12 — Database: Supabase (PostgreSQL), through the Express server

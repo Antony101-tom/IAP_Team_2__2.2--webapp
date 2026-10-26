@@ -28,6 +28,9 @@
     <label for="api">API address</label>
     <input id="api" value="http://localhost:5000">
 
+    <label for="key">Your API key (ask the API owner; it is only sent to the address above)</label>
+    <input id="key" type="password" placeholder="paste your API key" autocomplete="off">
+
     <label for="q">Medicine (name or category), or leave empty to list pharmacies</label>
     <input id="q" placeholder="e.g. amoxicillin">
 
@@ -69,8 +72,13 @@
 
     async function get(path, params) {
       const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
-      const res = await fetch(`${$('api').value.replace(/\/$/, '')}${path}?${qs}`);
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).errors?.join(', ') || `HTTP ${res.status}`);
+      const res = await fetch(`${$('api').value.replace(/\/$/, '')}${path}?${qs}`, { headers: { 'X-API-Key': $('key').value.trim() } });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 401) throw new Error('The API key is missing or wrong.');
+        if (res.status === 429) throw new Error(`Too many requests: try again in ${res.headers.get('Retry-After') || body.retryAfter || 'a few'} seconds.`);
+        throw new Error(body.errors?.join(', ') || `HTTP ${res.status}`);
+      }
       return res.json();
     }
 

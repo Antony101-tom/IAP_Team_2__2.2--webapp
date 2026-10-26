@@ -83,11 +83,12 @@ A complete, step-by-step Render guide (API and website) is in `RENDER.md`. A sum
 | `DATABASE_URL` | the Session pooler string from step 3 |
 | `JWT_SECRET` | a **new** long random string (not the one from your laptop) |
 | `CORS_ORIGIN` | the address of your website, for example `https://meditrac.vercel.app` (no trailing slash). If teammates run the website on their own computers (`TEAM_SETUP.md`), also add `http://localhost:5173`, separated by a comma |
+| `API_KEYS` | one **new** key per consumer, comma-separated (`npm run generate:key` makes one). **Required**: the server refuses to start without it, and every request needs a valid one |
 | `REQUIRE_LOGIN_FOR_WRITES` | `true` (see "Before real people use it") |
 | `PARTNER_ORIGINS` | `*` to let any website use the partner endpoints, or a comma-separated list of allowed sites |
 
 The host sets `PORT` itself, and `TRUST_PROXY` defaults to `1`, which is right because hosts like Render sit behind a proxy (it makes the sign-up and login limits count each visitor separately). Railway and Fly.io use the same idea: root directory `server`, `npm install`, `npm start`, same variables.
-Open `https://your-api-address/api/medications`: you should see a list of medications.
+Check it with your key: `curl -i -H "X-API-Key: <your-api-key>" https://your-api-address/api/medications` should answer `200` with a list of medications, and the same command without the header should answer `401`.
 
 Free plans on some hosts put the API to sleep when nobody has used it for a while, so the first request afterwards can take
 several seconds. Free Supabase projects can also be paused after a period of inactivity; you can restore them from the dashboard.
@@ -113,6 +114,7 @@ Then make sure the API's `CORS_ORIGIN` is exactly the website's address, and red
 - **Set `REQUIRE_LOGIN_FOR_WRITES=true`.** The agreed API contract has no login on the stock endpoints, so without this
   anyone who finds the API address can change any pharmacy's stock. With it, a pharmacy must send its login token.
 - Use a fresh `JWT_SECRET` for the live server, and keep the database password private.
+- Keep every API key out of git and out of chat channels. Send each consumer their key privately; to revoke one, delete it from `API_KEYS`.
 - The "anon" and "service_role" keys on Supabase's API page are **not used** by MediTrac. Never put a service key in the website.
 
 ## If something goes wrong

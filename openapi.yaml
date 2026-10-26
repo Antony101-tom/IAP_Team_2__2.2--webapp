@@ -13,7 +13,10 @@ servers:
   # - url: https://your-app.onrender.com/api
   #   description: Live server
 
-security: []
+# Every operation needs an API key, sent in the X-API-Key header. Each consumer gets its own key.
+# The only open endpoint is the health check, GET / (outside /api, so it is not part of this contract).
+security:
+  - ApiKeyAuth: []
 
 paths:
 
@@ -29,6 +32,10 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Medication'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
 
@@ -61,6 +68,10 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: "Pharmacy not found"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
 
@@ -99,6 +110,10 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: "Pharmacy not found"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
 
@@ -152,6 +167,10 @@ paths:
                   summary: id in the URL does not exist
                   value:
                     error: "Medication not found"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
 
@@ -178,6 +197,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
 
@@ -224,11 +247,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
 
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        Your personal API key, sent on every request. Each consumer (partner app, team member, website)
+        has its own key; ask the API owner for yours and never put it in code you publish.
+
   responses:
+    Unauthorized:
+      description: The X-API-Key header is missing or the key is not valid. The request was not processed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Missing or invalid API key"
+    RateLimited:
+      description: >
+        This key has made too many requests in the current one-minute window (100 per minute by default).
+        Wait the number of seconds in the Retry-After header, then try again.
+      headers:
+        Retry-After:
+          description: Seconds to wait before the next request.
+          schema:
+            type: integer
+            example: 42
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
+          example:
+            error: "Too many requests"
+            retryAfter: 42
     ServerError:
       description: Unexpected server or database failure.
       content:
@@ -326,6 +387,20 @@ components:
         error:
           type: string
           example: "Medication not found"
+
+    RateLimitError:
+      type: object
+      required:
+        - error
+        - retryAfter
+      properties:
+        error:
+          type: string
+          example: "Too many requests"
+        retryAfter:
+          type: integer
+          description: Seconds until this key may call again (same value as the Retry-After header).
+          example: 42
 
     ValidationError:
       type: object

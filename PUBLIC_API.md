@@ -1,8 +1,9 @@
 # MediTrac Public API
 
 Read pharmacy data from another app and build your own pharmacy map or "find this
-medicine near me" feature. The public endpoints are **read-only, need no login or API
-key**, and can be called from any website (CORS is open for them).
+medicine near me" feature. The public endpoints are **read-only and need no login**, but **every request needs an API key**
+(ask the API owner for yours) sent in the `X-API-Key` header. Browsers on any website may call them
+(CORS is open for them); CORS only decides which sites a browser lets in, it does not replace the key.
 
 Base URL: wherever the MediTrac server runs, for example `http://localhost:5000` or
 `http://192.168.1.20:5000` (see "Making it reachable" below).
@@ -77,10 +78,11 @@ you want one pin per pharmacy.
 
 ```js
 const API = 'http://localhost:5000';
+const API_KEY = '<your-api-key>'; // in a real app, load it from configuration, never commit a real key
 
 async function findMedicine(name, lat, lng) {
   const url = `${API}/api/medications/search?` + new URLSearchParams({ name, lat, lng, radius_km: 10, in_stock: true });
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: { 'X-API-Key': API_KEY } });
   if (!res.ok) throw new Error((await res.json()).errors?.join(', ') || res.status);
   return res.json();   // nearest first
 }
@@ -88,14 +90,16 @@ async function findMedicine(name, lat, lng) {
 
 `examples/map-demo.html` is a complete working map built only on these endpoints
 (Leaflet and OpenStreetMap, no framework). Open it in a browser while the MediTrac server
-is running, and copy whatever you need. If you use OpenStreetMap's map tiles in your own
+is running, paste your API key into its key field, and copy whatever you need. If you use OpenStreetMap's map tiles in your own
 app, follow their tile usage policy.
 
 ## Errors
 
 Bad input returns `400` with `{ "message": "Validation failed", "errors": ["..."] }`.
-An unknown pharmacy id returns `404`. More than 120 requests per minute from one IP
-returns `429`. Responses are always JSON.
+A missing or wrong API key returns `401` with `{ "error": "Missing or invalid API key" }`.
+An unknown pharmacy id returns `404`. More than 100 requests per minute with one key
+returns `429` with a `Retry-After` header (seconds to wait) and `{ "error": "Too many requests", "retryAfter": 42 }`.
+Responses are always JSON.
 
 ## Good to know
 

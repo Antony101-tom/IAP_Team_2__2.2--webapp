@@ -19,8 +19,9 @@ Teammate's computer                  Hosted online                    Supabase
    | `DATABASE_URL`, `JWT_SECRET` | as in HOSTING.md. Only you ever see these |
    | `CORS_ORIGIN` | `http://localhost:5173,http://127.0.0.1:5173` (teammates' computers). Add your hosted website's address too, if there is one, separated by a comma |
    | `REQUIRE_LOGIN_FOR_WRITES` | `true`, so nobody can change stock without a login |
+   | `API_KEYS` | one key per person or app (`npm run generate:key` in `server/`), comma-separated. Required |
 
-3. **Check it works:** open `https://your-api-address/api/medications` in a browser. You should see a list of medications.
+3. **Check it works:** run `curl -i -H "X-API-Key: <your-api-key>" https://your-api-address/api/medications`. You should see `200` and a list of medications (without the header you get `401`).
 4. **Send teammates the API address** (it is not a secret) and the project code. Do **not** send your `DATABASE_URL` or `server/.env`.
 
 Until the API is online you can share your own computer for a short time (it must stay switched on and the server running):
@@ -66,8 +67,8 @@ If you change `.env.local`, stop `npm run dev` (Ctrl+C) and start it again.
 To check it works as a group: one person registers a pharmacy and adds a medication, and another person logs in as a patient, searches
 for it, and finds it. Reload the page if it does not show up straight away.
 
-To look at the raw data without any login, open these in a browser (replace the address):
-`https://YOUR-API-ADDRESS/api/medications` and `https://YOUR-API-ADDRESS/api/pharmacies`.
+To look at the raw data without a login (you still need your API key, so use curl rather than the address bar):
+`curl -H "X-API-Key: <your-api-key>" https://YOUR-API-ADDRESS/api/medications` and the same for `/api/pharmacies`.
 
 ## If something does not work
 

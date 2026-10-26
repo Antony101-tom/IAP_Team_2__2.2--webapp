@@ -54,7 +54,7 @@ curl.exe -i -H "X-API-Key: <key>" https://find-my-artisan.onrender.com/artisans
 
 [Write what Team 3 reported to us: any 401s, 404s or 429s seen in our server logs, whose side the problem was on, and what we changed. If nothing was reported, write "Nothing reported by Team 3 during the lab; we watched our logs throughout."]
 
-Our rate limits, so partners know what to expect: public read endpoints allow 120 requests per IP per minute, and sign-ups allow 20 per IP per hour (`REGISTER_LIMIT_PER_HOUR`).
+Our rate limits, so partners know what to expect: every endpoint needs an API key and allows 100 requests per key per minute (`RATE_LIMIT_PER_MINUTE`), and sign-ups allow 20 per IP per hour (`REGISTER_LIMIT_PER_HOUR`).
 
 ## What we would do differently
 

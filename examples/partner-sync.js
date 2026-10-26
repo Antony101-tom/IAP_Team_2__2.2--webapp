@@ -4,10 +4,17 @@
 //   node examples/partner-sync.js                       (talks to http://localhost:5000)
 //   node examples/partner-sync.js http://192.168.1.20:5000
 //
+// Needs your MediTrac API key (ask the API owner): MEDITRAC_API_KEY=<your-api-key> node examples/partner-sync.js
+//
 // Run it twice: the second run logs in instead of registering and UPDATES the same stock
 // rows instead of duplicating them. Full reference: PARTNER_API.md
 
 const API = (process.argv[2] || 'http://localhost:5000').replace(/\/$/, '');
+const API_KEY = process.env.MEDITRAC_API_KEY; // never hard-code a key in a file you share
+if (!API_KEY) {
+  console.error('Set MEDITRAC_API_KEY to the API key you were given.');
+  process.exit(1);
+}
 const ACCOUNT = {
   name: 'Partner Demo Pharmacy',
   email: process.env.PHARMACY_EMAIL || 'partner-demo@example.com',
@@ -18,6 +25,7 @@ async function call(method, path, { body, token } = {}) {
   const res = await fetch(API + path, {
     method,
     headers: {
+      'X-API-Key': API_KEY,
       ...(API.includes('ngrok') ? { 'ngrok-skip-browser-warning': 'true' } : {}), // skip ngrok's free-plan warning page
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

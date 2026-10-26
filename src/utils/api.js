@@ -5,6 +5,13 @@ import { getSession, clearSession } from './accounts';
 // VITE_API_URL (e.g. https://api.example.com) when building.
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// Every API request needs an API key (X-API-Key). The website has its OWN key, separate from the keys
+// given to partners, so it can be told apart and revoked on its own. Set VITE_API_KEY in .env.local.
+// Be aware: anything in a browser app is visible to whoever opens DevTools, so this key identifies
+// "our website"; it is not a secret. The real protection for patients' and pharmacies' data is the
+// login token plus the per-key rate limit. Never put a partner's key, a database password or JWT_SECRET here.
+const API_KEY = import.meta.env.VITE_API_KEY || '';
+
 // Calls the MediTrac API and returns { ok, status, data }.
 //   auth: true  -> sends the logged-in account's token; if the server says the
 //                  login is missing/expired (401), the session is cleared and the
@@ -13,6 +20,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 // (server not running) throws.
 export async function apiFetch(path, { method = 'GET', body, auth = false } = {}) {
   const headers = {};
+  if (API_KEY) headers['X-API-Key'] = API_KEY;
   // ngrok's free plan answers requests that look like they come from a browser with a warning page instead
   // of your data. This header tells it to skip that page. It is only sent when the API address is an ngrok one.
   if (API_BASE.includes('ngrok')) headers['ngrok-skip-browser-warning'] = 'true';

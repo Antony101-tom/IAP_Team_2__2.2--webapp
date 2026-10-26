@@ -4,6 +4,10 @@ Create your pharmacy on MediTrac, publish your stock, and keep both up to date f
 own app. Once your pharmacy has a map pin, it shows up in the public search and on every
 app that uses the [Public API](PUBLIC_API.md).
 
+**Every request needs your API key** in the `X-API-Key` header (ask the API owner; each partner has their own key,
+so keep it private and never commit it). Replace `<your-api-key>` below with it. Calls that act on your own
+pharmacy also need your login token, as described in each step.
+
 All requests and responses are JSON. Replace `API` with the address of the MediTrac server
 (for example `http://localhost:5000`). A complete runnable example is in
 `examples/partner-sync.js` (`node examples/partner-sync.js`).
@@ -135,25 +139,27 @@ branch**. Your **email, password and `sku` values are never public.**
 | Token lifetime | 7 days (log in again to get a new one) |
 | New accounts | 20 successful sign-ups per IP address per hour |
 | Failed logins | 20 per IP address per 15 minutes |
-| Public read endpoints | 120 requests per minute per IP address |
+| All endpoints | 100 requests per minute per API key (`429` with a `Retry-After` header after that) |
 | Stock upload | 500 items and 1 MB per request |
 
 | Status | Meaning |
 |---|---|
 | `400` | Invalid input. `errors` (or `error`) says exactly what to fix |
-| `401` | No token where one is needed, or it is invalid or expired. Log in again |
+| `401` | The API key is missing or wrong (`Missing or invalid API key`), or no login token where one is needed, or it is invalid or expired. Log in again |
 | `403` | The token is for a patient account, or `pharmacy_id` is not yours |
 | `404` | `Pharmacy not found` (the `pharmacy_id` matches no pharmacy), `Medication not found` (no such id, or it belongs to another pharmacy) |
 | `409` | Email or `sku` already in use |
 | `413` | Request body over 1 MB |
-| `429` | Too many requests. Wait and retry |
+| `429` | Too many requests. Wait `Retry-After` seconds and retry. The body is `{ "error": "Too many requests", "retryAfter": 42 }` |
 
 ## Calling it from a website
 
 Server-to-server calls (Node, Python, PHP, curl...) always work. Calls made from a web page
 in a browser are allowed from any website by default. The server's owner can restrict this to
 named sites with `PARTNER_ORIGINS` in `server/.env`. Since your login is a token you send in a
-header (not a cookie), another website cannot act as you without that token.
+header (not a cookie), another website cannot act as you without that token. A browser page that
+calls the API must also send an API key, and anything in a web page is visible to its visitors,
+so prefer calling MediTrac from your own server and keeping the key there.
 
 ## Good to know
 

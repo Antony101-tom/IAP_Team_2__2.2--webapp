@@ -1,4 +1,7 @@
 node_modules
 dist
+# Secrets: never commit these. Only the *.example templates (placeholders) are committed.
 .env
+.env.*
 *.local
+!.env.example

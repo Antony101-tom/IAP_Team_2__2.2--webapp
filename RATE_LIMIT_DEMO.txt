@@ -1,0 +1,58 @@
+Week 9 demo output: authentication (Part B) and rate limiting (Part C)
+Generated 2026-10-26T09:49Z against the real API code over real HTTP.
+NOTE: the database is a stand-in (scripts/demo-server.js) because the sandbox has none; the auth and
+rate-limit layers are the real ones. Re-run these commands against YOUR server for your own screenshot.
+The key below was generated for this demo only and is not used anywhere.
+
+################ PART B: three requests ################
+
+$ curl -i http://localhost:5055/api/pharmacies                         # expect 401
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Content-Length: 38
+
+{"error":"Missing or invalid API key"}
+
+$ curl -i -H "X-API-Key: wrong" http://localhost:5055/api/pharmacies    # expect 401
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Content-Length: 38
+
+{"error":"Missing or invalid API key"}
+
+$ curl -i -H "X-API-Key: <your-real-key>" http://localhost:5055/api/pharmacies   # expect 200
+HTTP/1.1 200 OK
+RateLimit-Limit: 100
+RateLimit-Remaining: 99
+RateLimit-Reset: 60
+Content-Type: application/json; charset=utf-8
+Content-Length: 2
+
+[]
+
+
+$ curl -i -X DELETE http://localhost:5055/api/medications/1797cd3d-cd55-41bc-b791-ffbf1c0187b8   # writes too: 401
+HTTP/1.1 401 Unauthorized
+$ curl -i http://localhost:5055/    # the health check is the only open endpoint
+HTTP/1.1 200 OK
+API is running
+
+################ PART C: limit temporarily lowered to 3 ################
+
+$ for i in 1 2 3 4 5; do curl -s -o /dev/null -w "%{http_code} " -H "X-API-Key: <your-real-key>" http://localhost:5055/api/pharmacies; done
+200 200 200 429 429 
+
+$ curl -i -H "X-API-Key: <your-real-key>" http://localhost:5055/api/pharmacies    # one more, to show the 429 itself
+HTTP/1.1 429 Too Many Requests
+RateLimit-Policy: 3;w=60
+RateLimit-Limit: 3
+RateLimit-Remaining: 0
+RateLimit-Reset: 60
+Retry-After: 60
+Content-Type: application/json; charset=utf-8
+Content-Length: 45
+
+{"error":"Too many requests","retryAfter":60}
+
+
+(limit set back to the real value, 100 per minute, by removing RATE_LIMIT_PER_MINUTE=3)

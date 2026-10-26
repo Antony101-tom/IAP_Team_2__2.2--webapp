@@ -24,12 +24,12 @@ You need **Node 18+** and a free **Supabase** account. Run the backend and the f
 
 ```bash
 cd server
-cp .env.example .env     # then edit .env: paste your DATABASE_URL and set a JWT_SECRET
+cp .env.example .env     # then edit .env: paste your DATABASE_URL, set a JWT_SECRET and add your API_KEYS
 npm install
 npm start                # or: npm run dev   (auto-restarts with nodemon)
 ```
 
-Generate a `JWT_SECRET` with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. You should see `Server running on http://localhost:5000` and, right under it, `[database] Connected. The tables are ready.`
+Generate a `JWT_SECRET` with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`, and one API key per consumer with `npm run generate:key` (see [API keys and rate limits](#api-keys-and-rate-limits)). The server refuses to start without `API_KEYS`. You should see `Server running on http://localhost:5000` and, right under it, `[database] Connected. The tables are ready.`
 
 ### 3. Frontend (port 5173)
 
@@ -39,7 +39,7 @@ npm install
 npm run dev
 ```
 
-Visit `http://localhost:5173` and allow location access when your browser prompts for it. This is what lets the app calculate distances to nearby pharmacies. In development Vite forwards `/api/*` to the backend, so nothing else needs configuring.
+Before that, copy `.env.example` (in the project root) to `.env.local` and set `VITE_API_KEY` to the website's own key from the server's `API_KEYS`; every API request needs one. Visit `http://localhost:5173` and allow location access when your browser prompts for it. This is what lets the app calculate distances to nearby pharmacies. In development Vite forwards `/api/*` to the backend, so nothing else needs configuring.
 
 ### Try it out
 
@@ -90,8 +90,37 @@ After editing `server/.env`, stop the server (Ctrl+C) and run `npm start` again.
 ```bash
 cd server
 npm test            # Jest + Supertest; uses a fake database, so Supabase isn't needed
-npm run test:live   # tests every endpoint of a RUNNING server against openapi.yaml (see TESTING.md)
+API_KEY=<your-api-key> npm run test:live   # tests every endpoint of a RUNNING server against openapi.yaml (see TESTING.md)
 ```
+
+## API keys and rate limits
+
+**Every endpoint needs an API key.** The only open endpoint is the health check, `GET /` (it returns the text `API is running` and no data). Everything under `/api`, reads and writes alike, answers `401` without a valid key and never reaches the code that handles the request.
+
+Send your key in the `X-API-Key` header on every request:
+
+```bash
+curl -H "X-API-Key: <your-api-key>" http://localhost:5000/api/pharmacies
+```
+
+| Situation | Response |
+|---|---|
+| Valid key | The normal response (`200`, `201`, ...) |
+| No `X-API-Key` header, or a wrong key | `401` with `{ "error": "Missing or invalid API key" }` |
+| More than the limit in one minute | `429` with a `Retry-After: <seconds>` header and `{ "error": "Too many requests", "retryAfter": <seconds> }` |
+
+**Rate limit:** 100 requests per API key per minute (`RATE_LIMIT_PER_MINUTE` in `server/.env` changes it). Counting is per key, so one consumer's infinite loop cannot use up another consumer's allowance. A well-behaved client waits `Retry-After` seconds and tries again. The sign-up and failed-login limits (per IP address) are separate and unchanged; see [PARTNER_API.md](PARTNER_API.md).
+
+**Keys, in short:**
+
+- One key per consumer (your team, each ring partner, your own website), all listed comma-separated in `API_KEYS` in `server/.env`. Remove a key from the list to revoke it; the others keep working.
+- Create a key with `npm run generate:key` (in `server/`). Send it to its owner privately (direct message), never in the repo or a class channel.
+- Keys live in environment variables, never in source code. `.env` is in `.gitignore`; `.env.example` (placeholders only) is what gets committed.
+- Never write a real key in this README or any file you commit. Use `<your-api-key>` as the placeholder.
+- The website's key (`VITE_API_KEY`) is compiled into the site and visible to anyone who opens it, so it identifies "our website"; it is not a secret. Give it its own key, separate from any partner's.
+- The in-memory limiter resets when the server restarts and is not shared between several copies of the server. That is fine for this course; production systems use a shared store such as Redis.
+
+The full security review is in [SECURITY_AUDIT.md](SECURITY_AUDIT.md); `RATE_LIMIT_DEMO.txt` shows the `401` and `429` responses from a real run.
 
 ## Project Structure
 
@@ -144,4 +173,4 @@ meditrac-react/
 - Other apps can also create a pharmacy and upload and update their own stock: see `PARTNER_API.md` and `examples/partner-sync.js`.
 - To host the app online (Supabase for the database, plus a host for the API and the website): see `HOSTING.md`, or `RENDER.md` for step-by-step Render instructions. To let teammates use the shared data without database access: see `TEAM_SETUP.md`. To test the endpoints: see `TESTING.md`.
 - `openapi.yaml` is the agreed API contract, and the server follows it (checked by `server/__tests__/contract.test.js`). Everything added beyond it is described in `openapi-extensions.yaml`, and the differences are listed in `CONTRACT_DEVIATIONS.md`.
-- The contract's write endpoints take no login token, so by default they work without one. Set `REQUIRE_LOGIN_FOR_WRITES=true` in `server/.env` before the server is reachable by people you don't trust.
+- The contract's write endpoints take no login token, so by default a valid API key is all they need. Set `REQUIRE_LOGIN_FOR_WRITES=true` in `server/.env` before the server is reachable by people you don't trust.

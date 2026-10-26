@@ -50,6 +50,8 @@ Add these **Environment Variables**:
 | `NODE_VERSION` | `22` |
 | `DATABASE_URL` | Your Supabase **Session pooler** string, with the new password (see `HOSTING.md` step 3) |
 | `JWT_SECRET` | The new secret you generated |
+| `API_KEYS` | One key per consumer, comma-separated (generate each with `npm run generate:key`): your team, each partner, your website. **Required**: the server will not start without it |
+| `RATE_LIMIT_PER_MINUTE` | `100` (optional; the default) |
 | `REQUIRE_LOGIN_FOR_WRITES` | `true` |
 | `CORS_ORIGIN` | `http://localhost:5173` for now (you add the website's address in step 4) |
 | `PARTNER_ORIGINS` | `*` (let other apps' websites use the partner endpoints), or a comma-separated list of sites |
@@ -64,7 +66,7 @@ Server running on http://localhost:10000
 [database] Connected. The tables are ready.
 ```
 
-Then open `https://YOUR-API-ADDRESS.onrender.com/api/medications` in a browser. You should see a list of medications.
+Then check it with your key (a browser address bar cannot send the header, so use curl): `curl -i -H "X-API-Key: <your-api-key>" https://YOUR-API-ADDRESS.onrender.com/api/medications` should answer `200` with a list of medications, and the same command without `-H` should answer `401`.
 If a `[database]` line shows a problem instead, the table in the README (and `HOSTING.md`) explains each message.
 
 ## 3. Deploy the website (Static Site)
@@ -150,11 +152,14 @@ no `.env`, and no ngrok. Anyone who also develops the site locally puts the API 
 | The website opens but says it could not reach the server | `VITE_API_URL` is missing, wrong, or has a trailing `/` or `/api`, or the API is asleep. Fix it, then **Clear build cache & deploy** the website |
 | Red "CORS" error in the browser console (F12) | `CORS_ORIGIN` on the API does not exactly match the website's address (check `https`, no trailing slash) |
 | "Not Found" when refreshing `/register` or another page on the website | The rewrite rule `/*` to `/index.html` is missing |
-| "Too many attempts" or "Too many requests" | A rate limit: 20 failed logins per 15 minutes, 20 sign-ups per hour, 120 page loads per minute, per visitor. Wait and retry |
+| `401` "Missing or invalid API key" | The request has no `X-API-Key` header or the key is not in `API_KEYS`. On the **website** service set `VITE_API_KEY` to the website's key, then **Clear build cache & deploy** (it is read when the site is built) |
+| "Too many attempts" or "Too many requests" | A rate limit: 20 failed logins per 15 minutes and 20 sign-ups per hour (per visitor address), and 100 requests per minute per API key. Wait the `Retry-After` seconds and retry |
 | Deploy says the service failed health checks | Health Check Path must be `/`. Check the logs for a crash |
 
 ## Before real people use it
 
 - Delete the demo accounts (SQL in `HOSTING.md`).
 - Keep `REQUIRE_LOGIN_FOR_WRITES` set to `true`.
+- Give every consumer its own key in `API_KEYS`, and send each one privately. If a key leaks, remove it from `API_KEYS` and tell its owner.
+- Set `VITE_API_KEY` on the website service to the **website's own** key. It is public inside the site, so never reuse a partner's key there.
 - Never put a secret in a variable starting with `VITE_`: those are public inside the website.

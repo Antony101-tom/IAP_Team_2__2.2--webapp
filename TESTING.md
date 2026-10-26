@@ -2,6 +2,16 @@
 
 Three levels, from quick to thorough. Replace `localhost:5000` with your API's address if it is hosted.
 
+**Every request needs an API key** (`X-API-Key` header). The automated tests supply their own; for the live tester set `API_KEY`,
+and for hand tests in PowerShell make every `Invoke-RestMethod` send it once:
+
+```powershell
+$env:MEDITRAC_API_KEY = "<your-api-key>"   # a key from the server's API_KEYS
+$PSDefaultParameterValues['Invoke-RestMethod:Headers'] = @{ 'X-API-Key' = $env:MEDITRAC_API_KEY }
+```
+
+The examples below that build their own `$h` headers already include the key.
+
 ## 1. Automated checks (no database needed)
 
 ```bash
@@ -41,6 +51,7 @@ Settings (environment variables), for example in PowerShell: `$env:API_URL="http
 | Name | Meaning |
 |---|---|
 | `API_URL` | The API's address, ending in `/api`. Default `http://localhost:5000/api` |
+| `API_KEY` | **Required.** One of the keys in the server's `API_KEYS` |
 | `PHARMACY_ID` | Which pharmacy to create the test medication for. Default: any existing one |
 | `TOKEN` | A pharmacy's login token. Needed only if the server has `REQUIRE_LOGIN_FOR_WRITES=true`. Then `PHARMACY_ID` must be that pharmacy's id |
 
@@ -64,7 +75,7 @@ If you test by hand with PowerShell, ngrok's free plan can answer with its warni
 like a browser. Send the skip header:
 
 ```powershell
-$h = @{ 'ngrok-skip-browser-warning' = 'true' }
+$h = @{ 'ngrok-skip-browser-warning' = 'true'; 'X-API-Key' = $env:MEDITRAC_API_KEY }
 Invoke-RestMethod https://YOUR-REAL-ADDRESS.ngrok-free.app/api/medications -Headers $h
 ```
 
@@ -84,8 +95,8 @@ That 401 is the server doing its job, not the endpoint being broken. To test wit
 
 ```powershell
 $api = "https://meditrac-api.onrender.com/api"
-$login = Invoke-RestMethod -Method Post -Uri "$api/auth/login" -ContentType 'application/json' -Body '{"accountType":"pharmacy","email":"YOUR-PHARMACY-EMAIL","password":"YOUR-PASSWORD"}'
-$h = @{ Authorization = "Bearer $($login.token)" }
+$login = Invoke-RestMethod -Method Post -Uri "$api/auth/login" -Headers @{ 'X-API-Key' = $env:MEDITRAC_API_KEY } -ContentType 'application/json' -Body '{"accountType":"pharmacy","email":"YOUR-PHARMACY-EMAIL","password":"YOUR-PASSWORD"}'
+$h = @{ Authorization = "Bearer $($login.token)"; 'X-API-Key' = $env:MEDITRAC_API_KEY }
 $pharmacyId = $login.account.id
 
 # POST: the pharmacy_id must be YOUR pharmacy's id (from the login)
