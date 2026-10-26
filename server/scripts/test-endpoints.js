@@ -10,6 +10,7 @@
 //   API_URL        base address of the API (default http://localhost:5000/api)
 //   PHARMACY_ID    the pharmacy to create the test medication for (default: any existing one)
 //   PHARMACY_NAME  that pharmacy's name, used for /medications/by-pharmacy (default: looked up)
+//   API_KEY        an API key from the server's API_KEYS list (required: every endpoint needs one)
 //   TOKEN          a pharmacy login token, only needed if the server has REQUIRE_LOGIN_FOR_WRITES=true
 //
 // The test creates one medication named "ENDPOINT TEST" and deletes it again before it ends.
@@ -22,6 +23,11 @@ const addFormats = require('ajv-formats');
 
 const API = (process.env.API_URL || 'http://localhost:5000/api').replace(/\/$/, '');
 const TOKEN = process.env.TOKEN || '';
+const API_KEY = process.env.API_KEY || '';
+if (!API_KEY) {
+  console.error('Set API_KEY to one of the server\'s API keys, e.g.  API_KEY=<your-api-key> npm run test:live');
+  process.exit(1);
+}
 const CONTRACT_FILE = process.env.CONTRACT || path.join(__dirname, '../../openapi.yaml');
 const UNKNOWN_ID = '00000000-0000-4000-8000-000000000000'; // a well-formed id nothing uses
 const UNKNOWN_PHARMACY_ID = '00000000-0000-4000-8000-0000000000aa'; // a well-formed pharmacy id nothing uses
@@ -36,7 +42,7 @@ const compile = (schema) =>
   ajv.compile(JSON.parse(JSON.stringify(schema).replace(/"#\/components\/schemas\//g, '"contract#/components/schemas/')));
 
 async function call(method, urlPath, body) {
-  const headers = {};
+  const headers = { 'X-API-Key': API_KEY };
   if (API.includes('ngrok')) headers['ngrok-skip-browser-warning'] = 'true'; // skip ngrok's free-plan warning page
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (TOKEN && method !== 'GET') headers.Authorization = `Bearer ${TOKEN}`;

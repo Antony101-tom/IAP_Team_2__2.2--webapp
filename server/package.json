@@ -9,7 +9,8 @@
     "dev": "nodemon index.js",
     "test:live": "node scripts/test-endpoints.js",
     "check:db": "node scripts/check-database.js",
-    "sync:artisans": "node scripts/sync-artisans.js"
+    "sync:artisans": "node scripts/sync-artisans.js",
+    "generate:key": "node scripts/generate-api-key.js"
   },
   "keywords": [],
   "author": "",

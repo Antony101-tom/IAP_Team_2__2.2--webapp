@@ -1,4 +1,4 @@
-const request = require('supertest');
+const { request } = require('./helpers');
 const bcrypt = require('bcrypt');
 require('./helpers');
 

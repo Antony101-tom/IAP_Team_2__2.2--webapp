@@ -4,7 +4,7 @@
 // the contract gives for it. The last test fails if any documented response was never exercised.
 const fs = require('fs');
 const path = require('path');
-const request = require('supertest');
+const { request } = require('./helpers');
 const YAML = require('yaml');
 const Ajv = require('ajv');
 const addFormats = require('ajv-formats');
@@ -299,7 +299,12 @@ describe('coverage of the contract', () => {
     const documented = [];
     for (const [p, ops] of Object.entries(contract.paths)) {
       for (const [method, op] of Object.entries(ops)) {
-        for (const status of Object.keys(op.responses)) documented.push(`${method.toUpperCase()} ${p} ${status}`);
+        for (const [status, response] of Object.entries(op.responses)) {
+          // The shared 401 (no/wrong API key) and 429 (rate limit) come from middleware that runs before any
+          // route; api-key.test.js exercises and schema-checks them for EVERY operation in the contract.
+          if (response.$ref && /\/(Unauthorized|RateLimited)$/.test(response.$ref)) continue;
+          documented.push(`${method.toUpperCase()} ${p} ${status}`);
+        }
       }
     }
     expect(documented.filter((d) => !exercised.has(d))).toEqual([]);

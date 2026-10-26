@@ -1,4 +1,4 @@
-const request = require('supertest');
+const { request } = require('./helpers');
 const { pharmacyToken, userToken } = require('./helpers');
 
 // Replace the real MySQL pool so tests never touch a live database.

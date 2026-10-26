@@ -1,4 +1,4 @@
-const request = require('supertest');
+const { request } = require('./helpers');
 require('./helpers');
 
 jest.mock('../db', () => ({ pool: { query: jest.fn() } }));
