@@ -12,7 +12,7 @@ export default function BookedArtisans({ onToast, onFind }) {
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
   const [tab, setTab] = useState('upcoming'); // 'upcoming' | 'past'
-  const [details, setDetails] = useState(null); // artisan id whose profile/review modal is open
+  const [details, setDetails] = useState(null); // { id, finished } of the artisan whose profile is open
   const [rescheduling, setRescheduling] = useState(null); // the booking being moved
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
@@ -119,7 +119,7 @@ export default function BookedArtisans({ onToast, onFind }) {
                       <td>{b.note || <span className="artisan-muted">—</span>}</td>
                       <td><span className={`status-badge ${kind}`}>{label}</span></td>
                       <td className="artisan-actions">
-                        <button className="action-edit-btn" onClick={() => setDetails(b.artisan_id)}>{isPast ? 'Contact & review' : 'Contact'}</button>
+                        <button className="action-edit-btn" onClick={() => setDetails({ id: b.artisan_id, finished: isPast })}>{isPast ? 'Contact & review' : 'Contact'}</button>
                         {!isPast && <button className="action-edit-btn" onClick={() => setRescheduling(b)}>Reschedule</button>}
                         {!isPast && <button className="action-edit-btn danger" onClick={() => cancel(b)}>Cancel</button>}
                       </td>
@@ -133,7 +133,7 @@ export default function BookedArtisans({ onToast, onFind }) {
       </div>
 
       {details !== null && (
-        <ArtisanModal id={details} onClose={() => setDetails(null)} onChanged={refresh} onToast={onToast} />
+        <ArtisanModal id={details.id} canReview={details.finished} onClose={() => setDetails(null)} onChanged={refresh} onToast={onToast} />
       )}
       {rescheduling && (
         <RescheduleModal

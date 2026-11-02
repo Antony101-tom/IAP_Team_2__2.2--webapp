@@ -41,12 +41,32 @@ describe('/api/artisans: artisans and reviews', () => {
     expect(opts.headers['X-API-Key']).toBe('partner-secret');
   });
 
-  test('review calls are passed through', async () => {
+  test('a review is sent with the pharmacy name as author (never one supplied by the browser)', async () => {
+    pool.query.mockResolvedValueOnce([[{ name: 'Wellness Pharmacy' }]]);
     global.fetch.mockReturnValue(reply(201, { id: 5 }));
-    const res = await request(app).post('/api/artisans/3/reviews').set(...auth()).send({ rating: 5, comment: 'Great' });
+    const res = await request(app).post('/api/artisans/3/reviews').set(...auth('pharm-A'))
+      .send({ rating: 5, comment: 'Great', author: 'Someone Else', extra: 'x' });
     expect(res.status).toBe(201);
+    expect(pool.query.mock.calls[0][1]).toEqual(['pharm-A']);
     expect(global.fetch.mock.calls[0][0]).toBe('https://partner.test/artisans/3/reviews');
-    expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ rating: 5, comment: 'Great' });
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ rating: 5, comment: 'Great', author: 'Wellness Pharmacy' });
+  });
+
+  test('a review needs a rating from 1 to 5 (partner not called)', async () => {
+    for (const rating of [undefined, 0, 6, 2.5, 'abc']) {
+      const res = await request(app).post('/api/artisans/3/reviews').set(...auth()).send({ rating, comment: 'x' });
+      expect(res.status).toBe(400);
+    }
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('editing and deleting a review', async () => {
+    pool.query.mockResolvedValueOnce([[{ name: 'Wellness Pharmacy' }]]);
+    global.fetch.mockReturnValue(reply(200, { id: 7 }));
+    const patch = await request(app).patch('/api/artisans/3/reviews/7').set(...auth()).send({ comment: 'Better' });
+    expect(patch.status).toBe(200);
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ comment: 'Better', author: 'Wellness Pharmacy' });
+    expect((await request(app).patch('/api/artisans/3/reviews/7').set(...auth()).send({})).status).toBe(400);
 
     global.fetch.mockReturnValue(reply(204));
     expect((await request(app).delete('/api/artisans/3/reviews/7').set(...auth())).status).toBe(204);

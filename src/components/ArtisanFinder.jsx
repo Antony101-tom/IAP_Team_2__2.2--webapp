@@ -161,7 +161,8 @@ export default function ArtisanFinder({ onToast }) {
   );
 }
 
-export function ArtisanModal({ id, onClose, onChanged, onToast }) {
+// canReview is only true when opened from the Booked Artisans page for a finished job.
+export function ArtisanModal({ id, onClose, onChanged, onToast, canReview = false }) {
   const [artisan, setArtisan] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [tick, setTick] = useState(0);
@@ -336,37 +337,42 @@ export function ArtisanModal({ id, onClose, onChanged, onToast }) {
             <button className="btn-primary" disabled={booking} onClick={book}>{booking ? 'Booking…' : 'Mark as booked'}</button>
             <p className="artisan-sub">This reserves the time in Find My Artisan. Call the artisan to confirm the job and price.</p>
 
-            <h4>Review after a job</h4>
-            {myReviews.length > 0 && (
-              <ul className="artisan-list">
-                {myReviews.map((r, i) => (
-                  <li key={r.id ?? i}>
-                    <span>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)} {r.comment}</span>
-                    {r.id != null && (
-                      <span>
-                        <button className="artisan-link" onClick={() => { setEditing(r.id); setRating(r.rating); setComment(r.comment || ''); }}>Edit</button>
-                        <button className="artisan-link danger" onClick={() => removeReview(r.id)}>Delete</button>
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+            {canReview && (
+              <>
+              <h4>Review after a job</h4>
+              {myReviews.length > 0 && (
+                <ul className="artisan-list">
+                  {myReviews.map((r, i) => (
+                    <li key={r.id ?? i}>
+                      <span>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)} {r.comment}</span>
+                      {r.id != null && (
+                        <span>
+                          <button className="artisan-link" onClick={() => { setEditing(r.id); setRating(r.rating); setComment(r.comment || ''); }}>Edit</button>
+                          <button className="artisan-link danger" onClick={() => removeReview(r.id)}>Delete</button>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="form-row">
+                <label>Rating</label>
+                <select value={rating} onChange={(e) => setRating(Number(e.target.value))}>
+                  {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} – {['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'][n]}</option>)}
+                </select>
+              </div>
+              <div className="form-row">
+                <label>Comment</label>
+                <input type="text" value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} placeholder="Was the work done well, on time, tidy?" />
+              </div>
+              {reviewError && <div className="form-error">{reviewError}</div>}
+              <button className="btn-primary" disabled={posting} onClick={submitReview}>
+                {posting ? 'Saving…' : editing ? 'Save changes' : 'Post review'}
+              </button>
+              {editing && <button className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => { setEditing(null); setComment(''); setRating(5); }}>Cancel edit</button>}
+
+              </>
             )}
-            <div className="form-row">
-              <label>Rating</label>
-              <select value={rating} onChange={(e) => setRating(Number(e.target.value))}>
-                {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} – {['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'][n]}</option>)}
-              </select>
-            </div>
-            <div className="form-row">
-              <label>Comment</label>
-              <input type="text" value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} placeholder="Was the work done well, on time, tidy?" />
-            </div>
-            {reviewError && <div className="form-error">{reviewError}</div>}
-            <button className="btn-primary" disabled={posting} onClick={submitReview}>
-              {posting ? 'Saving…' : editing ? 'Save changes' : 'Post review'}
-            </button>
-            {editing && <button className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => { setEditing(null); setComment(''); setRating(5); }}>Cancel edit</button>}
 
             <div className="modal-actions"><button className="btn-secondary" onClick={onClose}>Close</button></div>
           </>

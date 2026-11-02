@@ -9,7 +9,7 @@ const { requirePharmacy } = require('../middleware/auth');
 //
 //   GET    /api/artisans?trade=&county=               -> partner GET    /artisans
 //   GET    /api/artisans/:id                          -> partner GET    /artisans/{id}
-//   POST   /api/artisans/:id/reviews                  -> partner POST   /artisans/{id}/reviews
+//   POST   /api/artisans/:id/reviews                  -> partner POST   /artisans/{id}/reviews (author added by us)
 //   PATCH  /api/artisans/:id/reviews/:reviewId        -> partner PATCH  /artisans/{id}/reviews/{reviewId}
 //   DELETE /api/artisans/:id/reviews/:reviewId        -> partner DELETE /artisans/{id}/reviews/{reviewId}
 //
@@ -243,19 +243,54 @@ router.post('/:id/availability', handle(async (req, res) => {
   res.status(result.status).json({ ...body, recorded });
 }));
 
-// ---- reviews (passed straight through) ---------------------------------------------------------------
+// ---- reviews -----------------------------------------------------------------------------------------
+// Find My Artisan requires an `author` on every review. We set it from the logged-in pharmacy's name
+// (never from the request), so a review always says which pharmacy wrote it.
+
+async function authorName(pharmacyId) {
+  const [rows] = await pool.query('SELECT name FROM pharmacies WHERE id = ?', [pharmacyId]);
+  return rows[0] ? rows[0].name : null;
+}
+
+// Picks rating (whole number 1-5) and comment from the request. `partial` allows leaving either out (PATCH).
+function readReview(body, partial) {
+  const errors = [];
+  const out = {};
+  const b = body || {};
+  if (b.rating !== undefined || !partial) {
+    const n = Number(b.rating);
+    if (!Number.isInteger(n) || n < 1 || n > 5) errors.push('rating must be a whole number from 1 to 5');
+    else out.rating = n;
+  }
+  if (b.comment !== undefined) {
+    if (typeof b.comment !== 'string') errors.push('comment must be text');
+    else out.comment = b.comment.trim().slice(0, 500);
+  }
+  if (partial && errors.length === 0 && Object.keys(out).length === 0) errors.push('Send a rating or a comment to change');
+  return errors.length ? { errors } : { values: out };
+}
 
 router.post('/:id/reviews', handle(async (req, res) => {
   if (!SEGMENT.test(req.params.id)) return badId(res);
-  send(res, await callPartner('POST', `/artisans/${req.params.id}/reviews`, { body: req.body || {} }));
+  const review = readReview(req.body, false);
+  if (review.errors) return res.status(400).json({ message: 'Validation failed', errors: review.errors });
+  const author = await authorName(req.pharmacyId);
+  if (!author) return res.status(404).json({ error: 'Pharmacy not found' });
+  send(res, await callPartner('POST', `/artisans/${req.params.id}/reviews`, { body: { ...review.values, author } }));
 }));
 
-for (const method of ['PATCH', 'DELETE']) {
-  router[method.toLowerCase()]('/:id/reviews/:reviewId', handle(async (req, res) => {
-    if (!SEGMENT.test(req.params.id) || !SEGMENT.test(req.params.reviewId)) return badId(res);
-    const body = method === 'PATCH' ? { body: req.body || {} } : {};
-    send(res, await callPartner(method, `/artisans/${req.params.id}/reviews/${req.params.reviewId}`, body));
-  }));
-}
+router.patch('/:id/reviews/:reviewId', handle(async (req, res) => {
+  if (!SEGMENT.test(req.params.id) || !SEGMENT.test(req.params.reviewId)) return badId(res);
+  const review = readReview(req.body, true);
+  if (review.errors) return res.status(400).json({ message: 'Validation failed', errors: review.errors });
+  const author = await authorName(req.pharmacyId);
+  if (!author) return res.status(404).json({ error: 'Pharmacy not found' });
+  send(res, await callPartner('PATCH', `/artisans/${req.params.id}/reviews/${req.params.reviewId}`, { body: { ...review.values, author } }));
+}));
+
+router.delete('/:id/reviews/:reviewId', handle(async (req, res) => {
+  if (!SEGMENT.test(req.params.id) || !SEGMENT.test(req.params.reviewId)) return badId(res);
+  send(res, await callPartner('DELETE', `/artisans/${req.params.id}/reviews/${req.params.reviewId}`));
+}));
 
 module.exports = router;
