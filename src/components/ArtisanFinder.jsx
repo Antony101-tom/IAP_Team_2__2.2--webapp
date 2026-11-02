@@ -1,16 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch, errorMessage, SERVER_DOWN_MESSAGE } from '../utils/api';
+import { cap, fmt } from '../utils/artisans';
 import '../styles/artisans.css';
-
-const TRADES = ['electrician', 'plumber', 'carpenter', 'painter'];
-const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
-
-const fmt = (iso) => {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? String(iso)
-    : d.toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-};
 
 // Busy windows can be { start, end } with or without an id, depending on the endpoint.
 const busyList = (a) => (Array.isArray(a?.busy) ? a.busy : []);
@@ -45,6 +36,11 @@ export default function ArtisanFinder({ onToast }) {
 
   const [openId, setOpenId] = useState(null);
 
+  // The trade names come from the API itself (it says "Electrical", "Plumbing"...), so the dropdown can
+  // never offer a value the API does not know. Collected from every list we load, so it never shrinks
+  // when a filter is applied.
+  const [tradeOptions, setTradeOptions] = useState([]);
+
   // Applied filters (the county box only searches when you press Search, not on every keystroke).
   const [applied, setApplied] = useState({ trade: '', county: '' });
 
@@ -60,7 +56,11 @@ export default function ArtisanFinder({ onToast }) {
       .then(({ ok, data }) => {
         if (cancelled) return;
         if (!ok) { setArtisans([]); setError(errorMessage(data, 'Could not load artisans.')); }
-        else setArtisans(Array.isArray(data) ? data : data.artisans || data.data || []);
+        else {
+          const list = Array.isArray(data) ? data : data.artisans || data.data || [];
+          setArtisans(list);
+          setTradeOptions((prev) => [...new Set([...prev, ...list.map((a) => a.trade).filter(Boolean)])].sort());
+        }
         setLoading(false);
       })
       .catch((err) => {
@@ -98,7 +98,7 @@ export default function ArtisanFinder({ onToast }) {
             <label htmlFor="af-trade">Trade</label>
             <select id="af-trade" value={trade} onChange={(e) => { setTrade(e.target.value); setApplied((p) => ({ ...p, trade: e.target.value })); }}>
               <option value="">All trades</option>
-              {TRADES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
+              {tradeOptions.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
             </select>
           </div>
           <div className="form-row">
@@ -161,14 +161,16 @@ export default function ArtisanFinder({ onToast }) {
   );
 }
 
-function ArtisanModal({ id, onClose, onChanged, onToast }) {
+export function ArtisanModal({ id, onClose, onChanged, onToast }) {
   const [artisan, setArtisan] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [tick, setTick] = useState(0);
+  const [mine, setMine] = useState([]); // bookings THIS pharmacy made with this artisan
 
   // Booking form
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
+  const [job, setJob] = useState('');
   const [bookError, setBookError] = useState('');
   const [booking, setBooking] = useState(false);
 
@@ -189,6 +191,11 @@ function ArtisanModal({ id, onClose, onChanged, onToast }) {
         else setArtisan(data);
       })
       .catch((err) => { if (!cancelled) { console.error(err); setLoadError(SERVER_DOWN_MESSAGE); } });
+    apiFetch('/api/artisans/bookings/mine', { auth: true })
+      .then(({ ok, data }) => {
+        if (!cancelled && ok && Array.isArray(data)) setMine(data.filter((b) => String(b.artisan_id) === String(id)));
+      })
+      .catch(() => { /* the profile still works without this */ });
     return () => { cancelled = true; };
   }, [id, tick]);
 
@@ -213,21 +220,39 @@ function ArtisanModal({ id, onClose, onChanged, onToast }) {
     if (clash) return setBookError(`Already booked ${fmt(clash.start)} – ${fmt(clash.end)}. Pick another time.`);
 
     setBooking(true);
-    const { ok, data } = await call('/availability', 'POST', { start: s.toISOString(), end: e.toISOString() });
+    const { ok, data } = await call('/availability', 'POST', {
+      start: s.toISOString(),
+      end: e.toISOString(),
+      note: job.trim(),
+      // What the Booked Artisans screen will show. Only start/end go on to Find My Artisan.
+      artisan: { name: artisan.name, trade: artisan.trade, area: artisan.area, county: artisan.county },
+    });
     setBooking(false);
     if (!ok) return setBookError(errorMessage(data, 'Could not book this artisan.'));
-    setStart(''); setEnd('');
-    onToast(`${artisan.name} marked as booked.`);
+    setStart(''); setEnd(''); setJob('');
+    onToast(data && data.recorded === false
+      ? `${artisan.name} is booked, but it could not be saved to your Booked Artisans list.`
+      : `${artisan.name} booked. See it under Booked Artisans.`);
     reload();
   }
 
-  async function cancelBlock(blockId) {
-    if (!window.confirm('Remove this booking?')) return;
-    const { ok, data } = await call(`/availability/${encodeURIComponent(blockId)}`, 'DELETE');
-    if (!ok) return onToast(errorMessage(data, 'Could not remove the booking.'));
-    onToast('Booking removed.');
-    reload();
+  async function cancelBooking(bookingId) {
+    if (!window.confirm('Cancel this booking?')) return;
+    try {
+      const { ok, data } = await apiFetch(`/api/artisans/bookings/${encodeURIComponent(bookingId)}`, { method: 'DELETE', auth: true });
+      if (!ok) return onToast(errorMessage(data, 'Could not cancel the booking.'));
+      onToast('Booking cancelled.');
+      reload();
+    } catch (err) {
+      console.error(err);
+      onToast(SERVER_DOWN_MESSAGE);
+    }
   }
+
+  // Which of the partner's busy windows is one of OUR pharmacy's bookings (so it can be cancelled from here)?
+  const ownBooking = (b) => mine.find((m) =>
+    (b.id != null && m.block_id != null && String(m.block_id) === String(b.id)) ||
+    (new Date(m.start).getTime() === new Date(b.start).getTime() && new Date(m.end).getTime() === new Date(b.end).getTime()));
 
   async function submitReview() {
     setReviewError('');
@@ -286,12 +311,15 @@ function ArtisanModal({ id, onClose, onChanged, onToast }) {
               <p className="artisan-sub">No bookings: fully free.</p>
             ) : (
               <ul className="artisan-list">
-                {busyList(artisan).map((b, i) => (
-                  <li key={b.id ?? `${b.start}-${i}`}>
-                    <span>{fmt(b.start)} – {fmt(b.end)}</span>
-                    {b.id != null && <button className="artisan-link danger" onClick={() => cancelBlock(b.id)}>Remove</button>}
-                  </li>
-                ))}
+                {busyList(artisan).map((b, i) => {
+                  const own = ownBooking(b);
+                  return (
+                    <li key={b.id ?? `${b.start}-${i}`}>
+                      <span>{fmt(b.start)} – {fmt(b.end)}{own && <strong className="artisan-yours"> · your pharmacy</strong>}</span>
+                      {own && <button className="artisan-link danger" onClick={() => cancelBooking(own.id)}>Cancel</button>}
+                    </li>
+                  );
+                })}
               </ul>
             )}
 
@@ -299,6 +327,10 @@ function ArtisanModal({ id, onClose, onChanged, onToast }) {
             <div className="form-row two-col">
               <div><label>From</label><input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} /></div>
               <div><label>Until</label><input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} /></div>
+            </div>
+            <div className="form-row">
+              <label>What is the job? (optional)</label>
+              <input type="text" value={job} maxLength={200} onChange={(e) => setJob(e.target.value)} placeholder="e.g. Fix the leaking sink in the dispensary" />
             </div>
             {bookError && <div className="form-error">{bookError}</div>}
             <button className="btn-primary" disabled={booking} onClick={book}>{booking ? 'Booking…' : 'Mark as booked'}</button>

@@ -68,6 +68,25 @@ create table if not exists tracked_medications (
     primary key (user_id, medication_id)
 );
 
+-- Artisans a pharmacy has booked through Find My Artisan. The partner's API only knows "Meditrac" as one
+-- caller, so WE keep who booked whom. artisan_name/trade/area/county are a snapshot taken at booking time.
+create table if not exists artisan_bookings (
+    id            text primary key default gen_random_uuid()::text,
+    pharmacy_id   text not null references pharmacies (id) on delete cascade,
+    artisan_id    text not null,                              -- the partner's artisan id
+    block_id      text,                                       -- the partner's availability block id (null if they did not return one)
+    artisan_name  text not null check (char_length(artisan_name) <= 150),
+    trade         text check (char_length(trade) <= 80),
+    area          text check (char_length(area) <= 120),
+    county        text check (char_length(county) <= 80),
+    start_at      timestamptz not null,
+    end_at        timestamptz not null,
+    note          text check (char_length(note) <= 200),      -- what the job is
+    created_at    timestamptz not null default now(),
+    check (end_at > start_at)
+);
+create index if not exists idx_artisan_bookings_pharmacy on artisan_bookings (pharmacy_id, start_at);
+
 -- SECURITY: Supabase automatically publishes every table in the "public" schema through a web
 -- API that anyone holding the project's public (anon) key can call. These tables hold
 -- password hashes, so switch on Row Level Security with NO policies: that blocks that public API
@@ -77,3 +96,4 @@ alter table users enable row level security;
 alter table pharmacies enable row level security;
 alter table medications enable row level security;
 alter table tracked_medications enable row level security;
+alter table artisan_bookings enable row level security;
