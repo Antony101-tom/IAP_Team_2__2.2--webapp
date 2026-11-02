@@ -10,7 +10,7 @@ const FULL = columnsFor([
   ['pharmacies', ['id', 'name', 'email', 'password_hash', 'phone', 'address', 'opening_hours', 'latitude', 'longitude']],
   ['medications', ['id', 'name', 'form', 'category', 'quantity', 'unit', 'price', 'branch', 'sku', 'pharmacy_id']],
   ['tracked_medications', ['user_id', 'medication_id']],
-  ['artisan_bookings', ['id', 'pharmacy_id', 'artisan_id', 'block_id', 'artisan_name', 'start_at', 'end_at']],
+  ['artisan_bookings', ['id', 'pharmacy_id', 'artisan_id', 'block_id', 'artisan_name', 'start_at', 'end_at', 'status', 'completed_at']],
 ]);
 
 let logSpy;

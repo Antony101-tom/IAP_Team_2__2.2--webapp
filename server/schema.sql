@@ -87,6 +87,12 @@ create table if not exists artisan_bookings (
 );
 create index if not exists idx_artisan_bookings_pharmacy on artisan_bookings (pharmacy_id, start_at);
 
+-- Whether the job was actually done. The pharmacy confirms it; the clock alone cannot tell.
+-- (alter ... if not exists, so this also upgrades a table created by an earlier version of this file)
+alter table artisan_bookings add column if not exists status text not null default 'booked'
+    check (status in ('booked', 'done', 'not_done'));
+alter table artisan_bookings add column if not exists completed_at timestamptz;
+
 -- SECURITY: Supabase automatically publishes every table in the "public" schema through a web
 -- API that anyone holding the project's public (anon) key can call. These tables hold
 -- password hashes, so switch on Row Level Security with NO policies: that blocks that public API

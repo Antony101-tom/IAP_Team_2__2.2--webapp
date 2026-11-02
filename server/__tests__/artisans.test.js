@@ -42,14 +42,23 @@ describe('/api/artisans: artisans and reviews', () => {
   });
 
   test('a review is sent with the pharmacy name as author (never one supplied by the browser)', async () => {
+    pool.query.mockResolvedValueOnce([[{ ok: 1 }]]); // has a job marked done with this artisan
     pool.query.mockResolvedValueOnce([[{ name: 'Wellness Pharmacy' }]]);
     global.fetch.mockReturnValue(reply(201, { id: 5 }));
     const res = await request(app).post('/api/artisans/3/reviews').set(...auth('pharm-A'))
       .send({ rating: 5, comment: 'Great', author: 'Someone Else', extra: 'x' });
     expect(res.status).toBe(201);
-    expect(pool.query.mock.calls[0][1]).toEqual(['pharm-A']);
+    expect(pool.query.mock.calls[0][1]).toEqual(['pharm-A', '3']);
+    expect(pool.query.mock.calls[1][1]).toEqual(['pharm-A']);
     expect(global.fetch.mock.calls[0][0]).toBe('https://partner.test/artisans/3/reviews');
     expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ rating: 5, comment: 'Great', author: 'Wellness Pharmacy' });
+  });
+
+  test('no review without a job marked done with that artisan (403, partner not called)', async () => {
+    pool.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).post('/api/artisans/3/reviews').set(...auth()).send({ rating: 5, comment: 'x' });
+    expect(res.status).toBe(403);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test('a review needs a rating from 1 to 5 (partner not called)', async () => {
@@ -160,7 +169,7 @@ describe('bookings', () => {
   });
 
   test('DELETE frees the time at the partner, then deletes our record', async () => {
-    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9' }]]);
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9', status: 'booked' }]]);
     pool.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
     global.fetch.mockReturnValue(reply(204));
     const res = await request(app).delete('/api/artisans/bookings/bk1').set(...auth('pharm-A'));
@@ -172,13 +181,13 @@ describe('bookings', () => {
   });
 
   test('DELETE keeps our record if the partner is unreachable, and treats partner 404 as already freed', async () => {
-    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9' }]]);
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9', status: 'booked' }]]);
     global.fetch.mockRejectedValue(new Error('down'));
     expect((await request(app).delete('/api/artisans/bookings/bk1').set(...auth())).status).toBe(502);
     expect(pool.query).toHaveBeenCalledTimes(1); // only the lookup: nothing deleted
 
     pool.query.mockReset();
-    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9' }]]);
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9', status: 'booked' }]]);
     pool.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
     global.fetch.mockReturnValue(reply(404, { error: 'gone' }));
     const res = await request(app).delete('/api/artisans/bookings/bk1').set(...auth());
@@ -187,7 +196,7 @@ describe('bookings', () => {
   });
 
   test('PATCH reschedules at the partner, then updates our record', async () => {
-    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9' }]]);
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9', status: 'booked' }]]);
     pool.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
     pool.query.mockResolvedValueOnce([[{ id: 'bk1', start: WINDOW.start, end: WINDOW.end }]]);
     global.fetch.mockReturnValue(reply(200, { id: 'blk-9' }));
@@ -199,10 +208,48 @@ describe('bookings', () => {
   });
 
   test('PATCH leaves our record alone when the partner rejects the new time', async () => {
-    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9' }]]);
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'blk-9', status: 'booked' }]]);
     global.fetch.mockReturnValue(reply(409, { error: 'Clash' }));
     const res = await request(app).patch('/api/artisans/bookings/bk1').set(...auth()).send(WINDOW);
     expect(res.status).toBe(409);
     expect(pool.query).toHaveBeenCalledTimes(1);
+  });
+
+  test('mark done: allowed once the start has arrived, even before the end (early finish)', async () => {
+    const started = new Date(Date.now() - 3600e3).toISOString();
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'b', status: 'booked', start_at: started }]]);
+    pool.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', status: 'done' }]]);
+    const res = await request(app).patch('/api/artisans/bookings/bk1/status').set(...auth('pharm-A')).send({ status: 'done' });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('done');
+    const [sql, params] = pool.query.mock.calls[1];
+    expect(sql).toMatch(/UPDATE artisan_bookings SET status/);
+    expect(params[0]).toBe('done');
+    expect(params[2]).toBe('bk1');
+    expect(params[3]).toBe('pharm-A');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('mark done: refused before the job has started', async () => {
+    const later = new Date(Date.now() + 3600e3).toISOString();
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'b', status: 'booked', start_at: later }]]);
+    const res = await request(app).patch('/api/artisans/bookings/bk1/status').set(...auth()).send({ status: 'done' });
+    expect(res.status).toBe(409);
+    expect(pool.query).toHaveBeenCalledTimes(1);
+  });
+
+  test('mark done: only your own booking, and only known statuses', async () => {
+    pool.query.mockResolvedValueOnce([[]]);
+    expect((await request(app).patch('/api/artisans/bookings/bk1/status').set(...auth('pharm-B')).send({ status: 'done' })).status).toBe(404);
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', status: 'booked', start_at: new Date(0).toISOString() }]]);
+    expect((await request(app).patch('/api/artisans/bookings/bk1/status').set(...auth()).send({ status: 'finished' })).status).toBe(400);
+  });
+
+  test('a job marked done can no longer be rescheduled or cancelled (until undone)', async () => {
+    pool.query.mockResolvedValue([[{ id: 'bk1', artisan_id: '3', block_id: 'b', status: 'done', start_at: new Date(0).toISOString() }]]);
+    expect((await request(app).delete('/api/artisans/bookings/bk1').set(...auth())).status).toBe(409);
+    expect((await request(app).patch('/api/artisans/bookings/bk1').set(...auth()).send(WINDOW)).status).toBe(409);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

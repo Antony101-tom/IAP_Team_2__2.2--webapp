@@ -21,6 +21,9 @@ const { requirePharmacy } = require('../middleware/auth');
 //   GET    /api/artisans/bookings/mine      -> this pharmacy's bookings (from our database)
 //   PATCH  /api/artisans/bookings/:bookingId -> partner PATCH  /artisans/{id}/availability/{blockId}
 //   DELETE /api/artisans/bookings/:bookingId -> partner DELETE /artisans/{id}/availability/{blockId}
+//   PATCH  /api/artisans/bookings/:bookingId/status { status: 'done' | 'not_done' | 'booked' }
+//          -> the pharmacy confirms the job happened (from its start time on, so early finishes are fine).
+//             Only then may it review that artisan.
 
 const router = express.Router();
 router.use(requirePharmacy);
@@ -127,7 +130,7 @@ const blockIdOf = (data) => {
 };
 
 const BOOKING_COLUMNS = `id, artisan_id, block_id, artisan_name, trade, area, county,
-  start_at AS "start", end_at AS "end", note, created_at`;
+  start_at AS "start", end_at AS "end", note, status, completed_at, created_at`;
 
 // ---- bookings (ours) ------------------------------------------------------------------------------
 
@@ -142,7 +145,7 @@ router.get('/bookings/mine', handle(async (req, res) => {
 async function findMyBooking(req, res) {
   if (!SEGMENT.test(req.params.bookingId)) { badId(res); return null; }
   const [rows] = await pool.query(
-    'SELECT id, artisan_id, block_id FROM artisan_bookings WHERE id = ? AND pharmacy_id = ?',
+    'SELECT id, artisan_id, block_id, status, start_at FROM artisan_bookings WHERE id = ? AND pharmacy_id = ?',
     [req.params.bookingId, req.pharmacyId]
   );
   if (rows.length === 0) { res.status(404).json({ error: 'Booking not found.' }); return null; }
@@ -153,6 +156,7 @@ async function findMyBooking(req, res) {
 router.patch('/bookings/:bookingId', handle(async (req, res) => {
   const booking = await findMyBooking(req, res);
   if (!booking) return;
+  if (booking.status !== 'booked') return res.status(409).json({ error: 'This job is already marked as done or not done. Undo that first to change the booking.' });
 
   const win = readWindow(req.body);
   if (win.errors) return res.status(400).json({ message: 'Validation failed', errors: win.errors });
@@ -176,10 +180,32 @@ router.patch('/bookings/:bookingId', handle(async (req, res) => {
   res.json({ ...rows[0], synced: !!booking.block_id });
 }));
 
+// Confirm whether the job happened. Allowed once the booking's start time has arrived, so a job that
+// finishes early can be marked done before its window ends. 'booked' undoes a mistake.
+router.patch('/bookings/:bookingId/status', handle(async (req, res) => {
+  const booking = await findMyBooking(req, res);
+  if (!booking) return;
+
+  const status = req.body && req.body.status;
+  if (!['booked', 'done', 'not_done'].includes(status)) {
+    return res.status(400).json({ message: 'Validation failed', errors: ["status must be 'done', 'not_done' or 'booked'"] });
+  }
+  if (status !== 'booked' && new Date(booking.start_at) > new Date()) {
+    return res.status(409).json({ error: 'You can mark a job as done once its start time has arrived.' });
+  }
+  await pool.query(
+    'UPDATE artisan_bookings SET status = ?, completed_at = ? WHERE id = ? AND pharmacy_id = ?',
+    [status, status === 'booked' ? null : new Date().toISOString(), booking.id, req.pharmacyId]
+  );
+  const [rows] = await pool.query(`SELECT ${BOOKING_COLUMNS} FROM artisan_bookings WHERE id = ?`, [booking.id]);
+  res.json(rows[0]);
+}));
+
 // Cancel a booking this pharmacy made: free the artisan's time at the partner, then forget it here.
 router.delete('/bookings/:bookingId', handle(async (req, res) => {
   const booking = await findMyBooking(req, res);
   if (!booking) return;
+  if (booking.status !== 'booked') return res.status(409).json({ error: 'This job is already marked as done or not done. Undo that first to change the booking.' });
 
   let released = false;
   if (booking.block_id) {
@@ -274,6 +300,14 @@ router.post('/:id/reviews', handle(async (req, res) => {
   if (!SEGMENT.test(req.params.id)) return badId(res);
   const review = readReview(req.body, false);
   if (review.errors) return res.status(400).json({ message: 'Validation failed', errors: review.errors });
+  // Only a pharmacy that has confirmed a finished job with this artisan may review them
+  const [done] = await pool.query(
+    "SELECT 1 AS ok FROM artisan_bookings WHERE pharmacy_id = ? AND artisan_id = ? AND status = 'done' LIMIT 1",
+    [req.pharmacyId, req.params.id]
+  );
+  if (done.length === 0) {
+    return res.status(403).json({ error: 'You can review an artisan after you mark a job with them as done on the Booked Artisans page.' });
+  }
   const author = await authorName(req.pharmacyId);
   if (!author) return res.status(404).json({ error: 'Pharmacy not found' });
   send(res, await callPartner('POST', `/artisans/${req.params.id}/reviews`, { body: { ...review.values, author } }));
