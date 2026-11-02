@@ -3,6 +3,7 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { requireApiKey, loadKeys } = require('./middleware/apiKey');
 const { perKeyRateLimit, perMinute } = require('./middleware/rateLimit');
+const { monitor, statsHandler } = require('./monitoring');
 require('dotenv').config();
 
 const app = express();
@@ -15,6 +16,11 @@ app.disable('x-powered-by'); // don't advertise the framework to every caller
 const trustProxyHops = Number(process.env.TRUST_PROXY ?? '1');
 app.set('trust proxy', Number.isInteger(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : false);
 const PORT = process.env.PORT || 5000;
+
+// Week 12: log every request and keep running totals. This is registered FIRST (before CORS, the API-key
+// check and the rate limiter) so the requests that get rejected (401, 429) are logged too: they are the
+// ones you most want to see.
+app.use(monitor);
 
 // Who may call the API from a browser (CORS). This only matters for browser apps:
 // server-to-server calls, curl and Postman are never affected by CORS. CORS is NOT authentication:
@@ -64,6 +70,9 @@ app.use(requireApiKey());
 // 2. HOW MUCH they may call: a per-key limit (RATE_LIMIT_PER_MINUTE, default 100) on every route.
 //    Over the limit -> 429 with a Retry-After header and a JSON body.
 app.use(perKeyRateLimit());
+
+// Running totals since the server started. It sits after the key check, so it needs a valid X-API-Key too.
+app.get('/stats', statsHandler);
 
 // Health check: the one endpoint that needs no key. It returns a fixed string, never data.
 app.get('/', (req, res) => {

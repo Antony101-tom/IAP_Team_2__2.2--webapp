@@ -165,6 +165,43 @@ meditrac-react/
 │   └── styles/
 ```
 
+## Monitoring: request log and `/stats`
+
+Every request is logged as one line of JSON (time, method, path, status, response time in ms, and a caller
+label like `key-3d64e6`, which is a short one-way fingerprint of the API key, never the key). Query strings,
+request bodies, passwords and keys are never logged. The logger runs before the key check and the rate
+limiter, so rejected requests (401, 429) are logged too. See `server/monitoring.js`.
+
+`GET /stats` returns running totals since the server started. It needs an `X-API-Key` like every other
+endpoint. The numbers live in memory, so they reset on every restart.
+
+```
+curl -s -H "X-API-Key: <your-api-key>" http://localhost:5000/stats
+```
+
+```json
+{
+  "startedAt": "2026-11-02T08:42:40.797Z",
+  "uptimeSeconds": 312,
+  "total": 142,
+  "clientErrors": 31,
+  "serverErrors": 0,
+  "errorRatePercent": 0,
+  "avgMs": 6.4,
+  "partner": { "calls": 12, "failures": 1, "failureRatePercent": 8.3 },
+  "routes": {
+    "GET /api/pharmacies": { "count": 40, "clientErrors": 0, "serverErrors": 0, "avgMs": 7.5, "maxMs": 31.2 },
+    "GET /api/pharmacies/:id": { "count": 16, "clientErrors": 9, "serverErrors": 0, "avgMs": 4.1, "maxMs": 38 },
+    "GET (no route)": { "count": 22, "clientErrors": 22, "serverErrors": 0, "avgMs": 1.2, "maxMs": 3.5 }
+  }
+}
+```
+
+- `errorRatePercent` counts 5xx only (our faults); 4xx are the caller's mistakes and are counted separately.
+- `GET (no route)` holds requests that never reached a route: a 401 or 429 rejected earlier, or a 404 for a path that doesn't exist. Check the log lines to tell them apart.
+- `partner` counts calls from this server to Find My Artisan and how many failed.
+- To generate traffic: `KEY=<your-api-key> N=200 npm run traffic` (in `server/`). Run the server with `npm start | tee requests.log`; `*.log` is git-ignored.
+
 ## Notes
 
 - The login session is kept per browser tab (`sessionStorage`), so you can be a pharmacy in one tab and a patient in another. Everything else is in the Supabase database.

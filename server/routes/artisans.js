@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { requirePharmacy } = require('../middleware/auth');
+const { recordPartnerCall } = require('../monitoring');
 
 // Find My Artisan, through Meditrac.
 //
@@ -44,7 +45,7 @@ class PartnerError extends Error {
 
 // Returns { status, data } for ANY answer the partner gives (including 400/404/409, which the caller passes on).
 // Throws PartnerError for things that are not the pharmacy's doing: not configured, unreachable, our key refused...
-async function callPartner(method, path, { query, body } = {}) {
+async function callPartnerRaw(method, path, { query, body } = {}) {
   const base = (process.env.PARTNER_URL || '').replace(/\/+$/, '');
   const key = process.env.PARTNER_API_KEY;
   if (!base || !key) throw new PartnerError(503, 'The artisan service is not configured on this server.');
@@ -91,6 +92,19 @@ async function callPartner(method, path, { query, body } = {}) {
   }
   if (data === null) throw new PartnerError(502, `The artisan service gave an unexpected reply (HTTP ${upstream.status}).`);
   return { status: upstream.status, data };
+}
+
+// Same call, but counted for /stats: any answer the partner gives that is not a server-side failure is a
+// success; an exception (unreachable, timeout, our key refused, rate limited, unreadable reply) is a failure.
+async function callPartner(method, path, options) {
+  try {
+    const result = await callPartnerRaw(method, path, options);
+    recordPartnerCall(result.status < 500);
+    return result;
+  } catch (err) {
+    recordPartnerCall(false);
+    throw err;
+  }
 }
 
 const isOk = (status) => status >= 200 && status < 300;

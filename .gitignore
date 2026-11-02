@@ -5,3 +5,5 @@ dist
 .env.*
 *.local
 !.env.example
+# Request logs (Week 12): they can contain who called what, so they are never committed
+*.log
