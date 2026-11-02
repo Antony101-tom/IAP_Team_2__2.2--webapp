@@ -1,0 +1,18 @@
+.artisan-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; margin-bottom: 22px; }
+.artisan-filters .form-row { margin-bottom: 0; min-width: 180px; }
+.artisan-search-btn { height: 40px; }
+.artisan-check { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #4a5568; font-weight: 600; height: 40px; }
+.artisan-empty { text-align: center; padding: 36px 20px; color: #a0aec0; }
+.artisan-sub { display: block; color: #718096; font-size: 0.78rem; margin-top: 4px; }
+.status-badge.neutral { background: #edf2f7; color: #4a5568; }
+.artisan-modal { max-width: 560px; }
+.artisan-modal h4 { margin: 22px 0 8px; color: #2d3748; font-size: 0.95rem; }
+.artisan-facts { display: flex; gap: 28px; margin: 6px 0 4px; }
+.artisan-facts span { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .5px; color: #a0aec0; font-weight: 700; }
+.artisan-facts div { font-weight: 600; color: #2d3748; }
+.artisan-facts em { color: #a0aec0; font-weight: 400; }
+.artisan-list { list-style: none; padding: 0; margin: 0 0 10px; font-size: 0.85rem; color: #4a5568; }
+.artisan-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #edf2f7; }
+.artisan-link { background: none; border: none; color: #2b6cb0; font-weight: 600; cursor: pointer; font-size: 0.8rem; margin-left: 8px; }
+.artisan-link.danger { color: #e53e3e; }
+.sidebar-link { cursor: pointer; background: none; border: none; text-align: left; width: 100%; font-family: inherit; }

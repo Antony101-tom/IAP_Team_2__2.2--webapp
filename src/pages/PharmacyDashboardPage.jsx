@@ -3,6 +3,7 @@ import { Navigate, useSearchParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import AddMedicationModal from '../components/AddMedicationModal';
 import PharmacyLocationPicker from '../components/PharmacyLocationPicker';
+import ArtisanFinder from '../components/ArtisanFinder';
 import { getSession, isLoggedInAs } from '../utils/accounts';
 import { apiFetch, errorMessage, SERVER_DOWN_MESSAGE } from '../utils/api';
 import { LOW_STOCK_THRESHOLD } from '../utils/medications';
@@ -21,6 +22,7 @@ export default function PharmacyDashboardPage() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState('');
+  const [view, setView] = useState('stock'); // 'stock' | 'artisans'
 
   const [profile, setProfile] = useState(null); // { latitude, longitude, ... } from the API
   const hasPin = !!(profile && profile.latitude != null && profile.longitude != null);
@@ -148,11 +150,16 @@ export default function PharmacyDashboardPage() {
 
       <div className="dashboard-container">
         <aside className="sidebar">
-          <a href="#" className="sidebar-link active"> Manage Stock</a>
+          <button type="button" className={`sidebar-link ${view === 'stock' ? 'active' : ''}`} onClick={() => setView('stock')}>Manage Stock</button>
+          <button type="button" className={`sidebar-link ${view === 'artisans' ? 'active' : ''}`} onClick={() => setView('artisans')}>Find an Artisan</button>
           <hr style={{ border: 0, borderTop: '1px solid #edf2f7', margin: '15px 0' }} />
         </aside>
 
         <main className="main-content">
+          {view === 'artisans' ? (
+            <ArtisanFinder onToast={showToast} />
+          ) : (
+          <>
           <div className="welcome-banner">
             <h1>Welcome back, {pharmacyName}!</h1>
             <p>Keep your shelf metrics precise to streamline walk-in patient processing tracks seamlessly.</p>
@@ -235,6 +242,8 @@ export default function PharmacyDashboardPage() {
               </table>
             </div>
           </div>
+          </>
+          )}
         </main>
       </div>
 

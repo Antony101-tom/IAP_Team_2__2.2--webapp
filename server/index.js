@@ -104,6 +104,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/medications', require('./routes/medications'));
 app.use('/api/pharmacies', require('./routes/pharmacies'));
 app.use('/api/tracking', require('./routes/tracking'));
+app.use('/api/artisans', require('./routes/artisans'));
 
 // Unknown API address: JSON, not an HTML error page
 app.use('/api', (req, res) => {
