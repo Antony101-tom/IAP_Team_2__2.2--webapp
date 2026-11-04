@@ -24,6 +24,13 @@ KEY=<your-key> N=200 npm run traffic       # in another terminal
 curl -s -H "X-API-Key: <your-api-key>" http://localhost:5000/stats
 grep -c "<your-real-key>" requests.log     # must print 0
 ```
+{"time":"2026-11-02T09:38:12.152Z","method":"GET","path":"/api/pharmacies","status":200,"ms":200.7,"caller":"key-fc131b"}
+{"time":"2026-11-02T09:38:12.422Z","method":"GET","path":"/api/pharmacies/00000000-0000-4000-8000-000000000000","status":404,"ms":204.9,"caller":"key-fc131b"}
+{"time":"2026-11-02T09:38:12.684Z","method":"GET","path":"/api/medications/search","status":200,"ms":202.6,"caller":"key-fc131b"}
+{"time":"2026-11-02T09:38:13.084Z","method":"GET","path":"/api/medications/search","status":200,"ms":338.5,"caller":"key-fc131b"}
+{"time":"2026-11-02T09:38:13.545Z","method":"GET","path":"/api/medications/search","status":200,"ms":395.4,"caller":"key-fc131b"}
+{"time":"2026-11-02T09:38:14.004Z","method":"GET","path":"/api/medications","status":200,"ms":405.5,"caller":"key-fc131b"}
+{"time":"2026-11-02T09:38:14.061Z","method":"GET","path":"/api/pharmacies","status":401,"ms":0.6,"caller":"none"}
 
 1. **Predicted vs actual** (with numbers):
 Predicted - GET /medications
