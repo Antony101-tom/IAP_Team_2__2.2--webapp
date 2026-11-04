@@ -12,7 +12,7 @@
 
 const API = (process.env.API || 'http://localhost:5000').replace(/\/+$/, '');
 const KEY = process.env.KEY;
-const N = Number(process.env.N || 60);
+const N = Number(process.env.N || 200);
 
 if (!KEY) {
   console.error('Set KEY=<your API key>, e.g.  KEY=abc123 node scripts/traffic.js');
