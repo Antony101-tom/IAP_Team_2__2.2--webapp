@@ -23,6 +23,18 @@ function VerifiedBadge({ verified }) {
     : <span className="status-badge neutral">Not verified</span>;
 }
 
+// The server answers { data, stale, asOf }. stale means the partner could not be reached and we are showing the
+// last copy we saved. Without this banner old data would look like live data, so it is part of the feature.
+function StaleBanner({ stale, asOf }) {
+  if (!stale) return null;
+  const when = asOf && !Number.isNaN(new Date(asOf).getTime()) ? new Date(asOf).toLocaleTimeString('en-KE') : 'earlier';
+  return (
+    <div className="stale-banner" role="status">
+      Showing saved data from {when}. Find My Artisan is not responding, so availability may be out of date.
+    </div>
+  );
+}
+
 export default function ArtisanFinder({ onToast }) {
   const [trade, setTrade] = useState('');
   const [county, setCounty] = useState('');
@@ -30,6 +42,7 @@ export default function ArtisanFinder({ onToast }) {
   const [freeOnly, setFreeOnly] = useState(false);
 
   const [artisans, setArtisans] = useState([]);
+  const [freshness, setFreshness] = useState({ stale: false, asOf: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
@@ -55,9 +68,10 @@ export default function ArtisanFinder({ onToast }) {
     apiFetch(`/api/artisans${qs.toString() ? `?${qs}` : ''}`, { auth: true })
       .then(({ ok, data }) => {
         if (cancelled) return;
-        if (!ok) { setArtisans([]); setError(errorMessage(data, 'Could not load artisans.')); }
+        if (!ok) { setArtisans([]); setFreshness({ stale: false, asOf: null }); setError(errorMessage(data, 'Could not load artisans.')); }
         else {
-          const list = Array.isArray(data) ? data : data.artisans || data.data || [];
+          const list = Array.isArray(data) ? data : data.data || data.artisans || [];
+          setFreshness({ stale: !!(data && data.stale), asOf: (data && data.asOf) || null });
           setArtisans(list);
           setTradeOptions((prev) => [...new Set([...prev, ...list.map((a) => a.trade).filter(Boolean)])].sort());
         }
@@ -67,6 +81,7 @@ export default function ArtisanFinder({ onToast }) {
         if (cancelled) return;
         console.error(err);
         setArtisans([]);
+        setFreshness({ stale: false, asOf: null });
         setError(SERVER_DOWN_MESSAGE);
         setLoading(false);
       });
@@ -110,8 +125,10 @@ export default function ArtisanFinder({ onToast }) {
           <label className="artisan-check"><input type="checkbox" checked={freeOnly} onChange={(e) => setFreeOnly(e.target.checked)} /> Free right now</label>
         </form>
 
+        {!loading && !error && <StaleBanner stale={freshness.stale} asOf={freshness.asOf} />}
+
         {loading ? (
-          <p className="artisan-empty">Loading artisans… the first load can take up to a minute while the service wakes up.</p>
+          <p className="artisan-empty">Loading artisans… this can take a few seconds if the service is slow.</p>
         ) : error ? (
           <p className="artisan-empty" style={{ color: '#e53e3e' }}>
             {error} <button className="action-edit-btn" onClick={refresh}>Try again</button>
@@ -164,6 +181,7 @@ export default function ArtisanFinder({ onToast }) {
 // canReview is only true when opened from the Booked Artisans page for a finished job.
 export function ArtisanModal({ id, onClose, onChanged, onToast, canReview = false }) {
   const [artisan, setArtisan] = useState(null);
+  const [freshness, setFreshness] = useState({ stale: false, asOf: null });
   const [loadError, setLoadError] = useState('');
   const [tick, setTick] = useState(0);
   const [mine, setMine] = useState([]); // bookings THIS pharmacy made with this artisan
@@ -189,7 +207,12 @@ export function ArtisanModal({ id, onClose, onChanged, onToast, canReview = fals
       .then(({ ok, data }) => {
         if (cancelled) return;
         if (!ok) setLoadError(errorMessage(data, 'Could not load this artisan.'));
-        else setArtisan(data);
+        else {
+          // { data, stale, asOf } from the server; a bare artisan is still accepted
+          const wrapped = data && typeof data === 'object' && 'stale' in data && 'data' in data;
+          setArtisan(wrapped ? data.data : data);
+          setFreshness({ stale: wrapped && !!data.stale, asOf: wrapped ? data.asOf : null });
+        }
       })
       .catch((err) => { if (!cancelled) { console.error(err); setLoadError(SERVER_DOWN_MESSAGE); } });
     apiFetch('/api/artisans/bookings/mine', { auth: true })
@@ -298,6 +321,7 @@ export function ArtisanModal({ id, onClose, onChanged, onToast, canReview = fals
         ) : (
           <>
             <h3>{artisan.name}</h3>
+            <StaleBanner stale={freshness.stale} asOf={freshness.asOf} />
             <p className="modal-sub">
               {cap(artisan.trade)} · {[artisan.area, artisan.county].filter(Boolean).join(', ')} <VerifiedBadge verified={artisan.verified} />
             </p>

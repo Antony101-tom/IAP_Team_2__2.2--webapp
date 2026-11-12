@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "body": [
+    {
+      "id": "a1",
+      "name": "Wellness Pharmacy",
+      "phone": "0722000002",
+      "address": "Tom Mboya Street, Nairobi",
+      "opening_hours": "Daily 7am-10pm",
+      "latitude": -1.2833,
+      "longitude": 36.8219,
+      "in_stock_count": 3
+    },
+    {
+      "id": "b2",
+      "name": "CityCare Chemist",
+      "phone": null,
+      "address": null,
+      "opening_hours": null,
+      "latitude": -1.29,
+      "longitude": 36.82,
+      "in_stock_count": 0
+    }
+  ]
+}

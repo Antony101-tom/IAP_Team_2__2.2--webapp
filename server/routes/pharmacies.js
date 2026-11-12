@@ -107,40 +107,49 @@ router.put('/me/location', requirePharmacy, async (req, res) => {
 // GET /api/pharmacies?lat=&lng=&radius_km=&limit=
 // Pharmacies that have pinned their location. With lat/lng each one gets distance_km and
 // the list is nearest first; add radius_km to keep only those within that distance.
-router.get('/', async (req, res) => {
-  const geo = parseGeoQuery(req.query);
-  const { limit, error: limitError } = parseLimit(req.query);
+// The list query lives in ONE function so v1 (a bare list) and v2 ({ data, count }) read exactly the same data.
+// It returns { errors } for a bad query, or { rows } on success; a database failure throws.
+async function fetchPharmacyList(query) {
+  const geo = parseGeoQuery(query);
+  const { limit, error: limitError } = parseLimit(query);
   const errors = [...geo.errors, ...(limitError ? [limitError] : [])];
-  if (errors.length > 0) return res.status(400).json({ message: 'Validation failed', errors });
+  if (errors.length > 0) return { errors };
 
   const inStock = `(SELECT COUNT(*) FROM medications m WHERE m.pharmacy_id = p.id AND m.quantity > 0)`;
 
-  try {
-    let sql;
-    const params = [];
-    if (geo.hasPosition) {
-      // Computed in an inner query so the outer one can filter and sort on distance_km
-      sql = `SELECT * FROM (
-               SELECT p.id, p.name, p.phone, p.address, p.opening_hours, p.latitude, p.longitude,
-                      ${inStock} AS in_stock_count, ${DISTANCE_SQL} AS distance_km
-               FROM pharmacies p
-               WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
-             ) t`;
-      params.push(geo.lat, geo.lat, geo.lng);
-      if (geo.radiusKm !== null) {
-        sql += ' WHERE distance_km <= ?';
-        params.push(geo.radiusKm);
-      }
-      sql += ' ORDER BY distance_km ASC, name ASC LIMIT ?';
-    } else {
-      sql = `SELECT p.id, p.name, p.phone, p.address, p.opening_hours, p.latitude, p.longitude, ${inStock} AS in_stock_count
+  let sql;
+  const params = [];
+  if (geo.hasPosition) {
+    // Computed in an inner query so the outer one can filter and sort on distance_km
+    sql = `SELECT * FROM (
+             SELECT p.id, p.name, p.phone, p.address, p.opening_hours, p.latitude, p.longitude,
+                    ${inStock} AS in_stock_count, ${DISTANCE_SQL} AS distance_km
              FROM pharmacies p
              WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
-             ORDER BY p.name ASC LIMIT ?`;
+           ) t`;
+    params.push(geo.lat, geo.lat, geo.lng);
+    if (geo.radiusKm !== null) {
+      sql += ' WHERE distance_km <= ?';
+      params.push(geo.radiusKm);
     }
-    params.push(limit);
+    sql += ' ORDER BY distance_km ASC, name ASC LIMIT ?';
+  } else {
+    sql = `SELECT p.id, p.name, p.phone, p.address, p.opening_hours, p.latitude, p.longitude, ${inStock} AS in_stock_count
+           FROM pharmacies p
+           WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+           ORDER BY p.name ASC LIMIT ?`;
+  }
+  params.push(limit);
 
-    const [rows] = await pool.query(sql, params);
+  const [rows] = await pool.query(sql, params);
+  return { rows };
+}
+
+// v1 (FROZEN shape): a bare list. Also what the old unversioned /api/pharmacies returns.
+router.get('/', async (req, res) => {
+  try {
+    const { errors, rows } = await fetchPharmacyList(req.query);
+    if (errors) return res.status(400).json({ message: 'Validation failed', errors });
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -167,3 +176,4 @@ router.get('/:id', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.fetchPharmacyList = fetchPharmacyList;

@@ -14,6 +14,7 @@ let errorSpy;
 beforeEach(() => {
   process.env.PARTNER_URL = 'https://partner.test/';
   process.env.PARTNER_API_KEY = 'partner-secret';
+  process.env.PARTNER_RETRY_DELAY_MS = '0';
   global.fetch = jest.fn();
   pool.query.mockReset();
   errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -35,7 +36,8 @@ describe('/api/artisans: artisans and reviews', () => {
     global.fetch.mockReturnValue(reply(200, [{ id: 1, name: 'A' }]));
     const res = await request(app).get('/api/artisans?trade=Plumbing&county=Nairobi&evil=1').set(...auth());
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([{ id: 1, name: 'A' }]);
+    expect(res.body).toMatchObject({ data: [{ id: 1, name: 'A' }], stale: false });
+    expect(Number.isNaN(Date.parse(res.body.asOf))).toBe(false);
     const [url, opts] = global.fetch.mock.calls[0];
     expect(url).toBe('https://partner.test/artisans?trade=Plumbing&county=Nairobi');
     expect(opts.headers['X-API-Key']).toBe('partner-secret');
@@ -59,6 +61,32 @@ describe('/api/artisans: artisans and reviews', () => {
     const res = await request(app).post('/api/artisans/3/reviews').set(...auth()).send({ rating: 5, comment: 'x' });
     expect(res.status).toBe(403);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('partner 403 no_job is explained, not reported as a refused key', async () => {
+    pool.query.mockResolvedValueOnce([[{ ok: 1 }]]);
+    pool.query.mockResolvedValueOnce([[{ name: 'Wellness Pharmacy' }]]);
+    global.fetch.mockReturnValue(reply(403, { code: 'no_job', message: 'No past job' }));
+    const res = await request(app).post('/api/artisans/9/reviews').set(...auth()).send({ rating: 5, comment: 'x' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('no_job');
+    expect(res.body.error).toMatch(/no past Meditrac job logged/);
+  });
+
+  test('any OTHER partner 403 is still treated as our credentials being refused (502)', async () => {
+    global.fetch.mockReturnValue(reply(403, { code: 'forbidden', message: 'nope' }));
+    expect((await request(app).get('/api/artisans').set(...auth())).status).toBe(502);
+  });
+
+  test('author is cut to the partner limit of 100 characters; an empty comment is left out', async () => {
+    pool.query.mockResolvedValueOnce([[{ ok: 1 }]]);
+    pool.query.mockResolvedValueOnce([[{ name: 'P'.repeat(150) }]]);
+    global.fetch.mockReturnValue(reply(201, { id: 312 }));
+    const res = await request(app).post('/api/artisans/3/reviews').set(...auth()).send({ rating: 4, comment: '   ' });
+    expect(res.status).toBe(201);
+    const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sent.author).toHaveLength(100);
+    expect(sent).toEqual({ rating: 4, author: 'P'.repeat(100) }); // rating is a number, no comment key
   });
 
   test('a review needs a rating from 1 to 5 (partner not called)', async () => {
@@ -251,5 +279,120 @@ describe('bookings', () => {
     expect((await request(app).delete('/api/artisans/bookings/bk1').set(...auth())).status).toBe(409);
     expect((await request(app).patch('/api/artisans/bookings/bk1').set(...auth()).send(WINDOW)).status).toBe(409);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('Week 11 resilience: retries and the saved-data fallback', () => {
+  const html = (status) => () => Promise.resolve({ status, headers: { get: () => null }, json: async () => { throw new Error('html'); } });
+  const withRetryAfter = (status, seconds) => Promise.resolve({
+    status, headers: { get: (h) => (h.toLowerCase() === 'retry-after' ? String(seconds) : null) }, json: async () => ({ code: 'rate_limited' }),
+  });
+  let warnSpy;
+  beforeEach(() => { warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {}); });
+  afterEach(() => warnSpy.mockRestore());
+
+  test('flaky partner (503, 503, then OK): the user sees the live list, no banner', async () => {
+    global.fetch.mockImplementationOnce(html(503)).mockImplementationOnce(html(503)).mockReturnValueOnce(reply(200, [{ id: 1 }]));
+    const res = await request(app).get('/api/artisans?county=Flaky').set(...auth());
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ data: [{ id: 1 }], stale: false });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  test('partner down + a saved copy: the saved list comes back marked stale with its time', async () => {
+    global.fetch.mockReturnValueOnce(reply(200, [{ id: 1, name: 'Wanjiru' }]));
+    const live = await request(app).get('/api/artisans?county=Nairobi').set(...auth());
+
+    global.fetch.mockReset();
+    global.fetch.mockImplementation(html(503));
+    const res = await request(app).get('/api/artisans?county=Nairobi').set(...auth());
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ data: [{ id: 1, name: 'Wanjiru' }], stale: true, asOf: live.body.asOf });
+    expect(global.fetch).toHaveBeenCalledTimes(3); // 1 try + 2 retries before giving up
+  });
+
+  test('the saved copy is kept per search: another search does not get it', async () => {
+    global.fetch.mockReturnValueOnce(reply(200, [{ id: 1 }]));
+    await request(app).get('/api/artisans?county=Nairobi').set(...auth());
+    global.fetch.mockReset();
+    global.fetch.mockImplementation(html(503));
+    const res = await request(app).get('/api/artisans?county=Mombasa').set(...auth());
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatch(/starting up or temporarily unavailable \(HTTP 503\)/);
+  });
+
+  test('partner down and nothing saved: a clear message, not "unexpected reply"', async () => {
+    global.fetch.mockImplementation(html(503));
+    const res = await request(app).get('/api/artisans?county=NothingSaved').set(...auth());
+    expect(res.status).toBe(503);
+    expect(res.body.error).not.toMatch(/unexpected reply/);
+  });
+
+  test('partner always answering HTTP 500: saved copy is served', async () => {
+    global.fetch.mockReturnValueOnce(reply(200, [{ id: 1 }]));
+    await request(app).get('/api/artisans/1').set(...auth());
+    global.fetch.mockReset();
+    global.fetch.mockReturnValue(reply(500, { message: 'Internal error' }));
+    const res = await request(app).get('/api/artisans/1').set(...auth());
+    expect(res.body).toMatchObject({ data: [{ id: 1 }], stale: true });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  test('a 404 is never retried and never replaced by old data', async () => {
+    global.fetch.mockReturnValueOnce(reply(200, { id: 7 }));
+    await request(app).get('/api/artisans/7').set(...auth());
+    global.fetch.mockReset();
+    global.fetch.mockReturnValue(reply(404, { code: 'not_found', message: 'No artisan' }));
+    const res = await request(app).get('/api/artisans/7').set(...auth());
+    expect(res.status).toBe(404);
+    expect(res.body.stale).toBeUndefined();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('429 is retried; if it persists with nothing saved the caller gets 429 and Retry-After', async () => {
+    global.fetch.mockImplementation(() => withRetryAfter(429, 0));
+    const res = await request(app).get('/api/artisans?county=Busy').set(...auth());
+    expect(res.status).toBe(429);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  test('a wrong partner key is not retried (1 call) and says so; the key is never logged', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch.mockReturnValue(reply(401, { code: 'unauthorized' }));
+    const res = await request(app).get('/api/artisans?county=BadKey').set(...auth());
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/refused this server's credentials/);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const logs = [...errSpy.mock.calls, ...warnSpy.mock.calls].flat().join('\n');
+    expect(logs).not.toContain('partner-secret');
+    errSpy.mockRestore();
+  });
+
+  test('writes are never retried and never fall back to saved data', async () => {
+    global.fetch.mockImplementation(html(503));
+    const book = await request(app).post('/api/artisans/3/availability').set(...auth())
+      .send({ start: '2030-11-05T08:00:00Z', end: '2030-11-05T12:00:00Z' });
+    expect(book.status).toBe(503);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    global.fetch.mockClear();
+    pool.query.mockResolvedValueOnce([[{ id: 'bk1', artisan_id: '3', block_id: 'b', status: 'booked', start_at: new Date(0).toISOString() }]]);
+    const cancel = await request(app).delete('/api/artisans/bookings/bk1').set(...auth());
+    expect(cancel.status).toBe(503);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('reads use the short timeout (PARTNER_TIMEOUT_MS), writes the longer one', async () => {
+    const spy = jest.spyOn(AbortSignal, 'timeout');
+    process.env.PARTNER_TIMEOUT_MS = '1500';
+    global.fetch.mockReturnValue(reply(200, []));
+    await request(app).get('/api/artisans?county=T1').set(...auth());
+    expect(spy).toHaveBeenLastCalledWith(1500);
+    global.fetch.mockReturnValue(reply(201, { id: 'x' }));
+    pool.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    await request(app).post('/api/artisans/3/availability').set(...auth()).send({ start: '2030-11-05T08:00:00Z', end: '2030-11-05T12:00:00Z' });
+    expect(spy).toHaveBeenLastCalledWith(15000);
+    spy.mockRestore();
+    delete process.env.PARTNER_TIMEOUT_MS;
   });
 });

@@ -1,6 +1,8 @@
 require('dotenv').config();
 const { randomBytes } = require('crypto');
 
+const { partnerPath } = require('../partner');
+
 async function main() {
   const partnerUrl = process.env.PARTNER_URL;
   const partnerKey = process.env.PARTNER_API_KEY;
@@ -11,7 +13,7 @@ async function main() {
   if (!myKey) throw new Error('Set MEDITRAC_API_KEY in server/.env (one of the keys in your server\'s API_KEYS list)');
 
   console.log('Fetching artisans from the partner (their server may take a minute to wake up)...');
-  const r = await fetch(`${partnerUrl}/artisans`, { headers: { 'X-API-Key': partnerKey } });
+  const r = await fetch(`${partnerUrl.replace(/\/+$/, '')}${partnerPath('/artisans')}`, { headers: { 'X-API-Key': partnerKey } });
   if (!r.ok) throw new Error(`Partner returned HTTP ${r.status}`);
   const body = await r.json();
   const artisans = Array.isArray(body) ? body : body.artisans || body.data || [];

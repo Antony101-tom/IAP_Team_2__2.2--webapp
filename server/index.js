@@ -31,16 +31,16 @@ app.use(monitor);
 //     they are protected by a login token sent in a header, not by cookies.
 //  3. Everything else (patient trackers): only the frontend addresses in CORS_ORIGIN.
 const PUBLIC_GET_PATHS = [
-  /^\/api\/medications\/?$/,
-  /^\/api\/medications\/search\/?$/,
-  /^\/api\/medications\/by-pharmacy\/?$/,
-  /^\/api\/pharmacies\/?$/,
-  /^\/api\/pharmacies\/(?!me\/?$)[^/]+\/?$/,
+  /^\/api(?:\/v[12])?\/medications\/?$/,
+  /^\/api(?:\/v[12])?\/medications\/search\/?$/,
+  /^\/api(?:\/v[12])?\/medications\/by-pharmacy\/?$/,
+  /^\/api(?:\/v[12])?\/pharmacies\/?$/,
+  /^\/api(?:\/v[12])?\/pharmacies\/(?!me\/?$)[^/]+\/?$/,
 ];
 const PARTNER_PATHS = [
-  /^\/api\/auth\/(register|login)\/?$/,
-  /^\/api\/medications(\/[^/]+(\/stock)?)?\/?$/, // create, bulk, mine, update, stock, delete
-  /^\/api\/pharmacies\/me(\/location)?\/?$/,
+  /^\/api(?:\/v[12])?\/auth\/(register|login)\/?$/,
+  /^\/api(?:\/v[12])?\/medications(\/[^/]+(\/stock)?)?\/?$/, // create, bulk, mine, update, stock, delete
+  /^\/api(?:\/v[12])?\/pharmacies\/me(\/location)?\/?$/,
 ];
 const splitList = (value) => value.split(',').map((s) => s.trim()).filter(Boolean);
 // Lets a browser app read these on a 429 (otherwise CORS hides them from its JavaScript)
@@ -82,8 +82,10 @@ app.get('/', (req, res) => {
 // Slow down password guessing: 20 failed attempts per IP per 15 minutes. This one counts per IP on
 // purpose: all visitors of one website share one API key, but a password guesser has one address.
 // (successful logins don't count against the limit)
+// (one limiter for all three prefixes, so /api/auth, /api/v1/auth and /api/v2/auth share one count:
+// otherwise a guesser could triple their attempts just by changing the URL)
 app.use(
-  '/api/auth',
+  ['/api/auth', '/api/v1/auth', '/api/v2/auth'],
   rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 20,
@@ -97,7 +99,7 @@ app.use(
 // Stop anyone filling the public map with fake pharmacies: only successful sign-ups count,
 // 20 per IP per hour by default (REGISTER_LIMIT_PER_HOUR to change)
 app.use(
-  '/api/auth/register',
+  ['/api/auth/register', '/api/v1/auth/register', '/api/v2/auth/register'],
   rateLimit({
     windowMs: 60 * 60 * 1000,
     limit: Number(process.env.REGISTER_LIMIT_PER_HOUR) || 20,
@@ -109,11 +111,10 @@ app.use(
   })
 );
 
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/medications', require('./routes/medications'));
-app.use('/api/pharmacies', require('./routes/pharmacies'));
-app.use('/api/tracking', require('./routes/tracking'));
-app.use('/api/artisans', require('./routes/artisans'));
+// Week 13: versions. These sit AFTER the key check and the rate limiter above, so every version needs a key.
+app.use('/api/v2', require('./v2')); // the new version
+app.use('/api/v1', require('./v1')); // the old version, still running
+app.use('/api', require('./v1'));    // old URLs with no version (/api/pharmacies) keep working
 
 // Unknown API address: JSON, not an HTML error page
 app.use('/api', (req, res) => {

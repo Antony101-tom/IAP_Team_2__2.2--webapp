@@ -8,6 +8,15 @@ medicine near me" feature. The public endpoints are **read-only and need no logi
 Base URL: wherever the MediTrac server runs, for example `http://localhost:5000` or
 `http://192.168.1.20:5000` (see "Making it reachable" below).
 
+## Versions
+
+The API is versioned in the URL. `/api/v2/...` is the current version. `/api/v1/...` and the old unversioned
+`/api/...` URLs still work and return the original shapes.
+
+**One change in v2:** `GET /api/v2/pharmacies` returns `{ "data": [ ... ], "count": N }` instead of a bare list.
+Every other endpoint is identical in both versions. The v1 list is **deprecated**: it sends `Deprecation`,
+`Sunset` and `Link` headers, and stops working on 18 November 2026. See `DEPRECATION_NOTICE.md`.
+
 ## What you can read
 
 | Endpoint | Returns |

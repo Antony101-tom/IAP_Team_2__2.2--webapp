@@ -30,3 +30,14 @@
 .action-edit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .artisan-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .artisan-actions .action-edit-btn { margin-right: 0; }
+
+/* Week 11: shown when the partner is down and we are displaying the last saved copy */
+.stale-banner {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #f0c36d;
+  background: #fff8e1;
+  color: #7a5200;
+  font-size: 0.9rem;
+}

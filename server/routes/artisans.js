@@ -2,6 +2,8 @@ const express = require('express');
 const { pool } = require('../db');
 const { requirePharmacy } = require('../middleware/auth');
 const { recordPartnerCall } = require('../monitoring');
+const { fetchWithRetry } = require('../resilientFetch'); // Week 11: timeout + capped retries (GET only)
+const { partnerPath, noteDeprecation } = require('../partner'); // Week 13: which partner version (v1 or v2) we call
 
 // Find My Artisan, through Meditrac.
 //
@@ -13,6 +15,8 @@ const { recordPartnerCall } = require('../monitoring');
 //   POST   /api/artisans/:id/reviews                  -> partner POST   /artisans/{id}/reviews (author added by us)
 //   PATCH  /api/artisans/:id/reviews/:reviewId        -> partner PATCH  /artisans/{id}/reviews/{reviewId}
 //   DELETE /api/artisans/:id/reviews/:reviewId        -> partner DELETE /artisans/{id}/reviews/{reviewId}
+//
+// (Week 13: each partner path below is sent as /v2/artisans/... when PARTNER_VERSION=v2; see partner.js.)
 //
 // Bookings are different. The partner only knows "Meditrac" as ONE caller, so it cannot tell which pharmacy
 // booked whom, and its availability blocks must never be changed by another pharmacy. So bookings go
@@ -29,8 +33,11 @@ const { recordPartnerCall } = require('../monitoring');
 const router = express.Router();
 router.use(requirePharmacy);
 
-// The partner runs on a free host that sleeps; waking up takes about a minute (see INTEGRATION_LOG.md, bug 5).
-const TIMEOUT_MS = Number(process.env.PARTNER_TIMEOUT_MS) || 70000;
+// Week 11 resilience settings (see RESILIENCE_NOTES.md). Reads give up quickly, because on failure the user sees
+// a saved copy instead. Writes (book, cancel, review) get longer and are NEVER retried: a retry could book twice.
+const READ_TIMEOUT_MS = () => Number(process.env.PARTNER_TIMEOUT_MS) || 1500;
+const WRITE_TIMEOUT_MS = () => Number(process.env.PARTNER_WRITE_TIMEOUT_MS) || 15000;
+const RETRY_DELAY_MS = () => Number(process.env.PARTNER_RETRY_DELAY_MS ?? 200);
 const SEGMENT = /^[A-Za-z0-9_-]{1,64}$/; // ids go into a URL path: never forward anything else
 
 // ---- talking to the partner ------------------------------------------------------------------------
@@ -55,16 +62,21 @@ async function callPartnerRaw(method, path, { query, body } = {}) {
 
   let upstream;
   try {
-    upstream = await fetch(`${base}${path}${qs}`, {
-      method,
-      headers: {
-        'X-API-Key': key,
-        Accept: 'application/json',
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    // Reads: 3 attempts in total (timeout, dropped connection, 429 and 5xx are retried). Writes: one attempt.
+    // fetchWithRetry never logs headers, so the partner key cannot end up in the log.
+    upstream = await fetchWithRetry(
+      `${base}${partnerPath(path)}${qs}`, // the version prefix (/v2) is added in partner.js, nowhere else
+      {
+        method,
+        headers: {
+          'X-API-Key': key,
+          Accept: 'application/json',
+          ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: hasBody ? JSON.stringify(body) : undefined,
       },
-      body: hasBody ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+      { timeoutMs: method === 'GET' ? READ_TIMEOUT_MS() : WRITE_TIMEOUT_MS(), retries: 2, delayMs: RETRY_DELAY_MS(), label: 'artisans' }
+    );
   } catch (err) {
     const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError';
     console.error('[artisans] partner call failed:', err.cause?.code || err.message);
@@ -76,12 +88,22 @@ async function callPartnerRaw(method, path, { query, body } = {}) {
     );
   }
 
+  noteDeprecation(upstream.headers, method, path); // log once if the partner says this endpoint is going away
+
   if (upstream.status === 204) return { status: 204, data: null };
+
+  // 502/503/504 are what a hosting service answers while the partner is asleep, restarting or redeploying
+  // (usually an HTML page, not JSON). That is "try again shortly", not a broken reply.
+  if ([502, 503, 504].includes(upstream.status)) {
+    console.error(`[artisans] partner unavailable (HTTP ${upstream.status})`);
+    throw new PartnerError(503, `The artisan service is starting up or temporarily unavailable (HTTP ${upstream.status}). Please try again in a minute.`);
+  }
 
   let data = null;
   try { data = await upstream.json(); } catch { /* not JSON */ }
 
-  if (upstream.status === 401 || upstream.status === 403) {
+  const noJob = upstream.status === 403 && data && data.code === 'no_job'; // about the artisan, not about our key
+  if ((upstream.status === 401 || upstream.status === 403) && !noJob) {
     // OUR credentials for the partner are wrong. That must not look like an expired pharmacy login
     // (the website logs people out on a 401).
     console.error(`[artisans] partner refused our API key (HTTP ${upstream.status})`);
@@ -234,18 +256,57 @@ router.delete('/bookings/:bookingId', handle(async (req, res) => {
 
 // ---- artisans (the partner's) -----------------------------------------------------------------------
 
+// ---- reads, with the Week 11 saved-data fallback ---------------------------------------------------------
+// Every good answer is kept in memory, per search, with the time it was saved. When the partner cannot be
+// reached (after the retries), the pharmacy gets that saved copy marked stale:true, and the website shows
+// its "Showing saved data from..." banner. Rules:
+//   - a 4xx from the partner (404 and friends) is a real answer: passed on, never replaced by old data
+//   - anything else going wrong (timeout, 5xx, refused key, still 429 after the retries) -> the saved copy if
+//     there is one, otherwise the error. (A saved copy can hide a wrong partner key: the log shows it.)
+//   - writes never fall back: they fail with a clear message
+const savedCopies = new Map();
+const SAVED_MAX = 200;
+
+async function getWithFallback(res, path, query) {
+  const key = `${path}?${new URLSearchParams(query || {})}`;
+  const serveSaved = (why) => {
+    const saved = savedCopies.get(key);
+    if (!saved) return false;
+    console.warn(`[artisans] serving saved copy from ${saved.asOf} (${why})`);
+    res.json({ data: saved.data, stale: true, asOf: saved.asOf });
+    return true;
+  };
+
+  let result;
+  try {
+    result = await callPartner('GET', path, { query });
+  } catch (err) {
+    if (err instanceof PartnerError && serveSaved(err.message)) return;
+    throw err;
+  }
+
+  if (isOk(result.status)) {
+    const asOf = new Date().toISOString();
+    if (savedCopies.size >= SAVED_MAX && !savedCopies.has(key)) savedCopies.delete(savedCopies.keys().next().value);
+    savedCopies.set(key, { data: result.data, asOf });
+    return res.json({ data: result.data, stale: false, asOf });
+  }
+  if (result.status >= 500 && serveSaved(`partner answered HTTP ${result.status}`)) return;
+  return send(res, result);
+}
+
 router.get('/', handle(async (req, res) => {
   const query = {};
   for (const f of ['trade', 'county']) {
     const v = typeof req.query[f] === 'string' ? req.query[f].trim() : '';
     if (v) query[f] = v.slice(0, 60);
   }
-  send(res, await callPartner('GET', '/artisans', { query }));
+  await getWithFallback(res, '/artisans', query);
 }));
 
 router.get('/:id', handle(async (req, res) => {
   if (!SEGMENT.test(req.params.id)) return badId(res);
-  send(res, await callPartner('GET', `/artisans/${req.params.id}`));
+  await getWithFallback(res, `/artisans/${req.params.id}`);
 }));
 
 // Book an artisan. Body: { start, end, note?, artisan?: { name, trade, area, county } }.
@@ -289,7 +350,19 @@ router.post('/:id/availability', handle(async (req, res) => {
 
 async function authorName(pharmacyId) {
   const [rows] = await pool.query('SELECT name FROM pharmacies WHERE id = ?', [pharmacyId]);
-  return rows[0] ? rows[0].name : null;
+  return rows[0] ? String(rows[0].name).slice(0, 100) : null; // the partner allows up to 100 characters
+}
+
+// The partner only lets us review artisans that have a past Meditrac job logged on THEIR side.
+// Explain that in plain words instead of passing on a bare 403.
+function sendReviewResult(res, result) {
+  if (result.status === 403 && result.data && result.data.code === 'no_job') {
+    return res.status(403).json({
+      code: 'no_job',
+      error: 'Find My Artisan has no past Meditrac job logged for this artisan yet, so they cannot be reviewed. Ask the artisan to log the job on their dashboard, then try again.',
+    });
+  }
+  return send(res, result);
 }
 
 // Picks rating (whole number 1-5) and comment from the request. `partial` allows leaving either out (PATCH).
@@ -304,7 +377,7 @@ function readReview(body, partial) {
   }
   if (b.comment !== undefined) {
     if (typeof b.comment !== 'string') errors.push('comment must be text');
-    else out.comment = b.comment.trim().slice(0, 500);
+    else if (b.comment.trim() || partial) out.comment = b.comment.trim().slice(0, 500); // partner: optional, so omit when empty
   }
   if (partial && errors.length === 0 && Object.keys(out).length === 0) errors.push('Send a rating or a comment to change');
   return errors.length ? { errors } : { values: out };
@@ -324,7 +397,7 @@ router.post('/:id/reviews', handle(async (req, res) => {
   }
   const author = await authorName(req.pharmacyId);
   if (!author) return res.status(404).json({ error: 'Pharmacy not found' });
-  send(res, await callPartner('POST', `/artisans/${req.params.id}/reviews`, { body: { ...review.values, author } }));
+  sendReviewResult(res, await callPartner('POST', `/artisans/${req.params.id}/reviews`, { body: { ...review.values, author } }));
 }));
 
 router.patch('/:id/reviews/:reviewId', handle(async (req, res) => {
@@ -333,7 +406,7 @@ router.patch('/:id/reviews/:reviewId', handle(async (req, res) => {
   if (review.errors) return res.status(400).json({ message: 'Validation failed', errors: review.errors });
   const author = await authorName(req.pharmacyId);
   if (!author) return res.status(404).json({ error: 'Pharmacy not found' });
-  send(res, await callPartner('PATCH', `/artisans/${req.params.id}/reviews/${req.params.reviewId}`, { body: { ...review.values, author } }));
+  sendReviewResult(res, await callPartner('PATCH', `/artisans/${req.params.id}/reviews/${req.params.reviewId}`, { body: { ...review.values, author } }));
 }));
 
 router.delete('/:id/reviews/:reviewId', handle(async (req, res) => {
