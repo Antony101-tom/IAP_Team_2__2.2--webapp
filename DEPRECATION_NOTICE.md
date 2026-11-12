@@ -1,6 +1,6 @@
 # Deprecation notice: MediTrac API, pharmacy list v1
 
-To: Team 3  From: Meditrac  Date: 12 November 2026
+To: Team 3  From: <your name>  Date: 12 November 2026
 
 ## Summary
 `GET /api/pharmacies` (v1) is deprecated. v2 is live now at `GET /api/v2/pharmacies`. v1 will stop working on **18 November 2026**. Please move before then.
